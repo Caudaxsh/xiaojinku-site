@@ -8,6 +8,17 @@ const WORKER = new URL('../vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).hr
 
 const NOISE = [/^\d{1,3}$/, /^page\s*\d+/i, /^\d+\s*\/\s*\d+$/, /^第\s*\d+\s*頁/, /^-\s*\d+\s*-$/];
 const TERMINAL = /[.!?。！？」”"]$/;
+// A line that starts a new heading, list item or IPA line is never the tail of a wrapped line.
+const STRUCTURAL = /^(?:#{1,6}\s|[-•*·]\s|\d+\s*[.)、]\s|[/[][^\s]*[/\]]$)/;
+const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩';
+
+/** Glyphs the PDF font could not map (e.g. ① ②) come out as NUL; restore them in order. */
+function fixGlyphs(text) {
+  let n = 0;
+  return text
+    .replace(/\u0000/g, () => CIRCLED[n++] || '•')
+    .replace(/[\u0001-\u0008\u000b-\u001f\u007f]/g, '');
+}
 const LATIN_END = /[A-Za-z0-9,;'’)\]-]$/;
 const LATIN_START = /^[A-Za-z0-9('‘"“]/;
 
@@ -35,7 +46,7 @@ function pageLines(items, pageWidth) {
   }
   if (cur) lines.push(cur);
   return lines
-    .map((l) => ({ ...l, text: l.text.replace(/\s+/g, ' ').trim(), pageWidth }))
+    .map((l) => ({ ...l, text: fixGlyphs(l.text).replace(/\s+/g, ' ').trim(), pageWidth }))
     .filter((l) => l.text && !NOISE.some((re) => re.test(l.text)));
 }
 
@@ -50,9 +61,9 @@ export function joinWrapped(lines) {
       const next = lines[i + 1];
       const rightLimit = line.pageWidth - left;
       const reachedMargin = line.x1 >= rightLimit - line.h * 2.5;
-      const sentenceDone = /[。！？]$/.test(line.text) || (TERMINAL.test(line.text) && /^[A-Z\u3400-\u9fff]/.test(next.text));
+      const sentenceDone = /[。！？]$/.test(line.text) || (TERMINAL.test(line.text) && !/^[a-z]/.test(next.text));
       const samePage = next.pageWidth === line.pageWidth && next.page === line.page;
-      if (!reachedMargin || sentenceDone || !samePage) break;
+      if (!reachedMargin || sentenceDone || !samePage || STRUCTURAL.test(next.text)) break;
       const glue = LATIN_END.test(line.text) && LATIN_START.test(next.text) ? ' ' : '';
       line = { ...line, text: line.text + glue + next.text, x1: next.x1 };
       i += 1;

@@ -49,16 +49,58 @@ function armed(el, text) {
 const speakBtn = (text, kind, cls = 'mini-speak', label = '發音') =>
   `<button class="${cls}" data-act="speak" data-kind="${kind}" data-text="${esc(text)}" aria-label="${label}">${ICON_SPEAK}${cls === 'speak-big' ? '<span>發音</span>' : ''}</button>`;
 
+const stemPattern = (w) => `${escRe(w.length > 4 ? w.replace(/(e|y)$/i, '') : w)}[a-z]*`;
+
+/** Mark the word in a sentence, including inflections and split phrases ("based our decision on"). */
 function highlight(sentence, word) {
   const safe = esc(sentence);
-  let pattern;
-  if (/\s/.test(word)) pattern = escRe(esc(word));
-  else {
-    const stem = word.length > 4 ? word.replace(/(e|y)$/i, '') : word;
-    pattern = `${escRe(stem)}[a-z]*`;
-  }
+  const tokens = word.replace(/[（(][^)）]*[)）]/g, ' ').trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return safe;
+  const pattern = tokens
+    .map((t, i) => (i === 0 ? stemPattern(t) : `${escRe(esc(t))}\\b`))
+    .join(String.raw`(?:\s+[^\s<]+){0,4}?\s+`);
   return safe.replace(new RegExp(`\\b(${pattern})`, 'gi'), '<b class="hit">$1</b>');
 }
+
+/** Words such as "base (something) on" are spoken without the placeholder brackets. */
+const spoken = (word) => word.replace(/[（(]([^)）]*)[)）]/g, '$1').replace(/\s+/g, ' ').trim();
+
+/** Long meanings: the first sentence is the headline, the rest is supporting detail. */
+function meaningHtml(meaning) {
+  if (!meaning) return '';
+  // "兩個意思：① …；② …" reads best as a short numbered list.
+  if (/[①-⑩]/.test(meaning)) {
+    const [lead, ...items] = meaning.split(/(?=[①-⑩])/);
+    const list = (lead.match(/^[①-⑩]/) ? [lead, ...items] : items).map((x) => x.replace(/[；;，,\s]+$/, ''));
+    const intro = lead.match(/^[①-⑩]/) ? '' : lead.trim();
+    return `${intro ? `<p class="meaning-more">${esc(intro)}</p>` : ''}<ol class="meaning-list">${list.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>`;
+  }
+  const cut = meaning.indexOf('。');
+  const core = cut > 0 && cut < meaning.length - 1 ? meaning.slice(0, cut + 1) : meaning;
+  const rest = core === meaning ? '' : meaning.slice(cut + 1).trim();
+  const size = core.length > 34 ? ' long' : '';
+  return `<p class="meaning${size}">${esc(core)}</p>${rest ? `<p class="meaning-more">${esc(rest)}</p>` : ''}`;
+}
+
+/** Multi-line text: "• " lines become a list, formula lines (a + b → c) get their own style. */
+function textBlock(text, cls = 'memo') {
+  const out = [];
+  let list = [];
+  const flushList = () => {
+    if (list.length) out.push(`<ul class="bullets">${list.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`);
+    list = [];
+  };
+  for (const line of text.split('\n').filter(Boolean)) {
+    if (line.startsWith('• ')) { list.push(line.slice(2)); continue; }
+    flushList();
+    const formula = /[＋+]/.test(line) && /[＝=→]/.test(line) && line.length < 60;
+    out.push(`<p class="${formula ? 'formula' : cls}">${esc(line)}</p>`);
+  }
+  flushList();
+  return out.join('');
+}
+
+const rowHtml = (x, inner) => (x.note ? `<li class="row-note">${esc(x.note)}</li>` : inner);
 
 function toast(message) {
   const el = $('#toast');
@@ -137,7 +179,7 @@ function dueLabel(card) {
 function upgradeCard(c) {
   const out = {
     ipa: '', aiStars: 0, forms: [], compares: [], quick: '', synonyms: '', notes: '', memory: '', meaning: '',
-    collocations: [], en: [], zh: [],
+    collocations: [], en: [], zh: [], extras: [],
     ...c,
   };
   // Cards scheduled under the earlier, longer ladders move onto the current ones.
@@ -167,8 +209,8 @@ function backSections(card) {
     out.push({ id: 'zh', label: '例句翻譯', tone: 'ink', html: `<ol class="pairs">${items}</ol>` });
   }
   if (card.collocations.length) {
-    const items = card.collocations.map((x) => `
-      <li data-act="speak" data-kind="sentence" data-text="${esc(x.p)}"><b>${esc(x.p)}</b><span>${esc(x.zh)}</span></li>`).join('');
+    const items = card.collocations.map((x) => rowHtml(x, `
+      <li data-act="speak" data-kind="sentence" data-text="${esc(x.p)}"><b>${esc(x.p)}</b><span>${esc(x.zh)}</span></li>`)).join('');
     out.push({ id: 'col', label: '常見搭配', tone: 'rust', note: '點一下可聽發音', html: `<ul class="rows">${items}</ul>` });
   }
   if (card.compares.length) {
@@ -179,19 +221,24 @@ function backSections(card) {
   }
   if (card.forms.length) {
     const items = card.forms.map((f) => {
+      if (f.note) return rowHtml(f);
       const { head, pos } = splitPos(f.p);
       return `<li><b>${esc(head)}${pos ? `<span class="pos">${esc(pos)}</span>` : ''}</b><span>${esc(f.zh)}</span></li>`;
     }).join('');
     out.push({ id: 'forms', label: '詞性變化', tone: 'olive', html: `<ul class="rows">${items}</ul>` });
   }
   if (card.memory || card.quick) {
-    const lines = (card.memory || '').split('\n').filter(Boolean);
-    const body = lines.map((l) => (/[＋+]/.test(l) && /[＝=]/.test(l) ? `<p class="formula">${esc(l)}</p>` : `<p class="memo">${esc(l)}</p>`)).join('');
-    const quick = card.quick ? `<div class="quick"><small>最快記法</small><p>${esc(card.quick)}</p></div>` : '';
-    out.push({ id: 'mem', label: '記憶方式', tone: 'gold', html: body + quick });
+    const [quickHead, ...quickRest] = (card.quick || '').split('\n');
+    const quick = card.quick
+      ? `<div class="quick"><small>最快記法</small><p>${esc(quickHead)}</p></div>${quickRest.length ? `<div class="quick-more">${textBlock(quickRest.join('\n'))}</div>` : ''}`
+      : '';
+    out.push({ id: 'mem', label: '記憶方式', tone: 'gold', html: textBlock(card.memory || '') + quick });
   }
-  if (card.synonyms) out.push({ id: 'syn', label: '同義・反義', tone: 'slate', html: `<p class="prose">${esc(card.synonyms)}</p>` });
-  if (card.notes) out.push({ id: 'notes', label: '文法・補充', tone: 'muted', html: `<p class="prose">${esc(card.notes)}</p>` });
+  (card.extras || []).forEach((x, i) => {
+    out.push({ id: `extra${i}`, label: x.title, tone: 'slate', html: textBlock(x.text) });
+  });
+  if (card.synonyms) out.push({ id: 'syn', label: '同義・反義', tone: 'slate', html: textBlock(card.synonyms, 'prose') });
+  if (card.notes) out.push({ id: 'notes', label: '文法・補充', tone: 'muted', html: textBlock(card.notes, 'prose') });
   return out;
 }
 
@@ -323,7 +370,7 @@ function onCardShown() {
   const cur = studyEntry();
   if (!cur) return;
   const { card } = cur;
-  if (S.settings.autoPlay) say(card.word, { isWord: true });
+  if (S.settings.autoPlay) say(spoken(card.word), { isWord: true });
   if (!card.ipa && !ipaTried.has(card.id)) {
     ipaTried.add(card.id);
     lookupIpa(card.word).then(async (ipa) => {
@@ -378,7 +425,7 @@ function renderStudy(animate = '') {
           <div><div class="w">${esc(card.word)}</div><p class="ipa" data-ipa-for="${esc(card.id)}">${esc(card.ipa)}</p></div>
           ${speakBtn(card.word, 'word')}
         </div>
-        ${card.meaning ? `<p class="meaning">${esc(card.meaning)}</p>` : ''}
+        ${meaningHtml(card.meaning)}
         ${aiHint}
         ${sectionsHtml(secs)}
       </article>`;
@@ -599,7 +646,7 @@ function openCardSheet(id) {
       ${speakBtn(c.word, 'word')}
     </div>
     <p class="muted small" style="margin-top:6px">${c.status === 'new' ? '<span class="chip">NEW</span> ' : `${starsHtml(c.stars)}・`}${dueLabel(c)}${c.lapses ? `・忘記 ${c.lapses} 次` : ''}</p>
-    ${c.meaning ? `<p class="meaning">${esc(c.meaning)}</p>` : ''}
+    ${meaningHtml(c.meaning)}
     ${c.en.length ? `<section class="sec tone-ink"><div class="sec-h"><h3>英文例句</h3></div><ol class="pairs">${c.en.map((s) => `<li><p class="zh">${highlight(s, c.word)}</p></li>`).join('')}</ol></section>` : ''}
     ${sectionsHtml(secs, 'sheet')}
     <section class="sec tone-gold"><div class="sec-h"><h3>重要性</h3></div>
@@ -686,6 +733,8 @@ function cardTags(c) {
     c.forms.length && `詞性 ${c.forms.length}`,
     c.memory && '拆解記憶',
     c.quick && '最快記法',
+    c.extras && c.extras.length && `其他段落 ${c.extras.length}`,
+    c.notes && '補充',
     c.ipa && '音標',
   ].filter(Boolean);
   return tags.map((t) => `<span>${esc(t)}</span>`).join('');
@@ -858,7 +907,7 @@ const actions = {
   tab: (el) => go(el.dataset.tab),
   start: () => startStudy(),
   flip: flipCard,
-  speak: (el) => say(el.dataset.text, { isWord: el.dataset.kind === 'word' }),
+  speak: (el) => say(el.dataset.kind === 'word' ? spoken(el.dataset.text) : el.dataset.text, { isWord: el.dataset.kind === 'word' }),
   jump: (el) => {
     const target = document.getElementById(el.dataset.to);
     if (target) target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });

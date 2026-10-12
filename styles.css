@@ -160,6 +160,10 @@ body.studying .tabs { display: none; }
 .back-head .ipa { margin: 2px 0 0; font-size: 15px; min-height: 0; }
 .back-head .mini-speak { margin-left: auto; width: 42px; height: 42px; background: var(--ink); color: var(--paper); border: 0; }
 .meaning { font: 700 24px/1.4 var(--serif); margin: 16px 0 4px; color: var(--ink); }
+.meaning.long { font-size: 19px; line-height: 1.5; }
+.meaning-list { display: grid; gap: 8px; margin: 10px 0 4px; }
+.meaning-list li { font: 700 18px/1.5 var(--serif); padding-left: 2px; }
+.meaning-more { font-size: 15px; line-height: 1.65; color: var(--slate); margin-top: 6px; }
 .ai-hint { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
 .sec { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); scroll-margin-top: 130px; }
 .sec-h { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
@@ -199,7 +203,12 @@ body.studying .tabs { display: none; }
 .quick { display: grid; gap: 2px; padding: 13px 15px; border-radius: 14px; background: var(--ink); color: var(--paper); margin-top: 6px; }
 .quick small { color: var(--gold); font-size: 12px; letter-spacing: 0.12em; font-weight: 700; }
 .quick p { font: 600 17px/1.5 var(--serif); }
-.prose { font-size: 15px; color: var(--slate); white-space: pre-line; }
+.prose { font-size: 15px; color: var(--slate); white-space: pre-line; margin-bottom: 8px; }
+.bullets { display: grid; gap: 6px; margin: 2px 0 10px; }
+.bullets li { position: relative; padding: 9px 12px 9px 26px; border-radius: 12px; background: var(--paper-2); font-size: 15px; line-height: 1.55; color: var(--ink); }
+.bullets li::before { content: ""; position: absolute; left: 12px; top: 1.05em; width: 6px; height: 6px; border-radius: 2px; background: var(--tone, var(--gold)); }
+.quick-more { margin-top: 10px; }
+.rows li.row-note { display: block; background: none; padding: 6px 2px 0; font-size: 14px; color: var(--muted); }
 
 /* action bar */
 .actionbar {

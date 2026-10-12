@@ -82,16 +82,21 @@ function isBareHeading(text, next) {
   return Boolean(next) && isSentence(next) && next.toLowerCase().includes(stemOf(t));
 }
 
+const POS_TAIL = /\s*[（(](?:n|v|vt|vi|adj|adv|prep|phr|phrasal|conj|pron|int|idiom)\b[^)）]*[)）]\s*$/i;
+
 function cleanWord(raw) {
-  let w = raw.replace(STARS, ' ').replace(/[☆✨]/g, ' ').replace(LIST_MARKER, '').trim();
-  w = w.replace(IPA_RE, ' ').split(/\s*[（(\[【|—–]\s*|\s+-\s+|[:：]/)[0].trim();
-  if (/^[A-Z][a-z'’-]*(?: [a-z'’-]+)*$/.test(w)) w = w.toLowerCase();
-  return w.replace(/\s+/g, ' ');
+  let w = raw.replace(STARS, ' ').replace(/[☆✨]/g, ' ').replace(LIST_MARKER, '').replace(IPA_RE, ' ').trim();
+  // Keep placeholders such as "base (something) on"; only cut at real separators.
+  w = w.split(/\s*[[【|—–]\s*|\s+-\s+|[:：]/)[0].replace(POS_TAIL, '').trim().replace(/\s+/g, ' ');
+  if (/^[A-Z][a-z'’-]*(?:\s+[a-z()（）'’-]+)*$/.test(w)) w = w.toLowerCase();
+  return w;
 }
 
 export function wordKey(word) {
   return word.trim().toLowerCase().replace(/\s+/g, ' ');
 }
+
+const IPA_ONLY = /^[/[][^/\]\n]{1,40}[/\]]$/;
 
 function parsePair(text) {
   const t = text.trim();
@@ -99,6 +104,14 @@ function parsePair(text) {
   const m = t.match(/^(.*?)\s*(?:\s[—–-]+\s|[—–]+|：|:)\s*(.+)$/);
   return m && m[1] ? { p: m[1].trim(), zh: m[2].trim() } : { p: t, zh: '' };
 }
+
+/** "Base something on something：以…" → "以…" (drops an English lead-in before the colon). */
+function dropLatinLead(text) {
+  const m = text.match(/^[A-Za-z][A-Za-z ()'’.,/-]{0,60}[:：]\s*(.+)$/);
+  return m ? m[1] : text;
+}
+
+const bulletize = (row) => row.replace(/^[-*•·▪◦]\s*/, '• ');
 
 function splitBlocks(text) {
   const lines = text.split('\n');
@@ -116,19 +129,37 @@ function splitBlocks(text) {
     }
     return '';
   };
+  // An IPA line written just above a headword belongs to that next word.
+  const takeTrailingIpa = () => {
+    for (let k = cur.length - 1; k >= 0; k--) {
+      const t = cur[k].trim();
+      if (!t) continue;
+      return IPA_ONLY.test(stripMarkdown(t)) ? cur.splice(k)[0] : null;
+    }
+    return null;
+  };
 
   lines.forEach((raw, i) => {
     const trimmed = raw.trim();
     if (SEPARATOR.test(trimmed)) { flush(); return; }
     const text = stripMarkdown(trimmed);
     const heading = trimmed.match(/^(#{1,6})\s*\S/);
+    let startsWord = false;
     if (heading) {
       const label = matchLabel(text);
-      // "### 常見搭配" is a section label; "# memory" is a vocabulary word.
-      const isLabel = (label && (heading[1].length >= 3 || label.colon || CJK.test(text))) || compareTitle(text);
-      if (!isLabel) flush();
-    } else if (started() && (isStarHeading(text) || isBareHeading(text, nextLine(i)))) {
+      // "### 常見搭配" or "## 中文翻譯" are sections; "# memory" or "## Lovely ★★★" are words.
+      const labelLike = label && (label.colon || CJK.test(text));
+      startsWord = isStarHeading(text)
+        || (heading[1].length <= 2 && !CJK.test(text) && !labelLike && !compareTitle(text));
+    } else {
+      startsWord = isStarHeading(text) || (started() && isBareHeading(text, nextLine(i)));
+    }
+    if (startsWord) {
+      const ipa = takeTrailingIpa();
       flush();
+      cur.push(raw);
+      if (ipa) cur.push(ipa);
+      return;
     }
     cur.push(raw);
   });
@@ -137,10 +168,12 @@ function splitBlocks(text) {
 }
 
 function parseBlock(lines) {
-  const rows = lines.map(stripMarkdown).filter(Boolean);
+  const rows = lines
+    .map((raw) => ({ text: stripMarkdown(raw), level: (raw.trim().match(/^#{1,6}/) || [''])[0].length }))
+    .filter((r) => r.text);
   if (!rows.length) return null;
 
-  const head = rows[0];
+  const head = rows[0].text;
   const first = matchLabel(head);
   let word;
   if (!first || !first.colon) word = cleanWord(head);
@@ -161,6 +194,7 @@ function parseBlock(lines) {
     quick: '',
     synonyms: '',
     notes: '',
+    extras: [],
   };
   const wordColon = new RegExp(`^${escapeRe(word)}\\s*[:：]\\s*(.*)$`, 'i');
   let state = 'en';
@@ -173,19 +207,31 @@ function parseBlock(lines) {
     if (!card.compares.length) card.compares.push({ title: '', items: [] });
     return card.compares[card.compares.length - 1];
   };
-  const feed = (key, text) => {
-    const t = text.trim();
-    if (!t) return;
-    if (key === 'en' || key === 'zh') (CJK.test(t) ? card.zh : card.en).push(t);
+  /** A list row ("x — 中文") becomes a pair; a loose explanatory sentence becomes a note. */
+  const pairOrNote = (row, plain) => {
+    const isItem = LIST_MARKER.test(row);
+    const pair = parsePair(plain);
+    if (!pair) return null;
+    if (!isItem && (!pair.zh || CJK.test(pair.p))) return { note: plain };
+    return pair;
+  };
+  const feed = (key, row) => {
+    const plain = row.replace(LIST_MARKER, '').trim();
+    if (!plain) return;
+    if (key === 'en' || key === 'zh') (CJK.test(plain) ? card.zh : card.en).push(plain);
     else if (key === 'collocations' || key === 'forms') {
-      t.split(/\s*\|\s*/).map(parsePair).filter(Boolean).forEach((x) => card[key].push(x));
+      plain.split(/\s*\|\s*/).map((part) => pairOrNote(row, part)).filter(Boolean).forEach((x) => card[key].push(x));
     } else if (key === 'compare') {
-      const pair = parsePair(t);
-      if (pair) currentCompare().items.push(pair);
-    } else addText(key, t);
+      const x = pairOrNote(row, plain);
+      if (x) currentCompare().items.push(x);
+    } else if (key === 'extra') {
+      const ex = card.extras[card.extras.length - 1];
+      ex.text = ex.text ? `${ex.text}\n${bulletize(row)}` : bulletize(row);
+    } else if (key === 'meaning') addText('meaning', plain);
+    else addText(key, bulletize(row));
   };
 
-  for (const row of rows.slice(1)) {
+  for (const { text: row, level } of rows.slice(1)) {
     const title = compareTitle(row);
     if (title) {
       state = 'compare';
@@ -203,8 +249,14 @@ function parseBlock(lines) {
       if (label.rest) feed(state, label.rest);
       continue;
     }
+    if (level >= 2) {
+      // A heading we do not know ("### 科技領域特別常見的用法") becomes its own section.
+      state = 'extra';
+      card.extras.push({ title: stripLead(row), text: '' });
+      continue;
+    }
     const plain = row.replace(LIST_MARKER, '');
-    if (state === 'en' && !card.en.length && /^[/[][^/\]]+[/\]]$/.test(plain)) {
+    if (state === 'en' && !card.en.length && IPA_ONLY.test(plain)) {
       card.ipa = plain;
       continue;
     }
@@ -214,17 +266,24 @@ function parseBlock(lines) {
       feed('meaning', wc[1]);
       continue;
     }
-    feed(state, state === 'memory' || state === 'quick' ? stripLead(plain) || plain : plain);
+    // After the translations, an unnumbered Chinese paragraph is the word's meaning.
+    if (state === 'zh' && !LIST_MARKER.test(row) && CJK.test(plain) && card.en.length && card.zh.length >= card.en.length) {
+      state = 'meaning';
+      feed('meaning', dropLatinLead(plain));
+      continue;
+    }
+    feed(state, state === 'memory' || state === 'quick' ? stripLead(row) || row : row);
   }
 
   card.meaning = card.meaning.replace(/\n+/g, '；');
   if (!card.meaning) {
     const key = wordKey(word);
-    const form = card.forms.find((f) => wordKey(f.p).startsWith(key) && f.zh);
-    const cmp = card.compares.flatMap((c) => c.items).find((x) => wordKey(x.p) === key && x.zh);
+    const form = card.forms.find((f) => f.p && wordKey(f.p).startsWith(key) && f.zh);
+    const cmp = card.compares.flatMap((c) => c.items).find((x) => x.p && wordKey(x.p) === key && x.zh);
     card.meaning = (form || cmp || {}).zh || '';
   }
   card.compares = card.compares.filter((c) => c.items.length);
+  card.extras = card.extras.filter((x) => x.text);
   if (!card.en.length && !card.zh.length && !card.meaning && !card.collocations.length) {
     return { error: '這一段看不出是單字內容', snippet: head.slice(0, 40) };
   }
@@ -234,7 +293,11 @@ function parseBlock(lines) {
 export function parseVocab(text) {
   const result = { cards: [], warnings: [], errors: [] };
   const seen = new Set();
-  for (const block of splitBlocks(String(text || '').replace(/\r\n?/g, '\n'))) {
+  const clean = String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\u0000/g, '')
+    .replace(/([.!?。！？」”)])[ \t]*(#{2,6}[ \t]+)/g, '$1\n$2');
+  for (const block of splitBlocks(clean)) {
     const parsed = parseBlock(block);
     if (!parsed) continue;
     if (parsed.error) { result.errors.push(parsed); continue; }

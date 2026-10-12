@@ -190,3 +190,104 @@ test('junk preface (e.g. a PDF title) is reported, not turned into a card', () =
   assert.deepEqual(cards.map((c) => c.word), ['flagship']);
   assert.equal(errors.length, 1);
 });
+
+// Layout produced when ChatGPT's markdown is saved straight to PDF:
+// IPA above the headword, "##"/"###" kept as text, unlabeled meaning,
+// a custom "###" section, a heading glued to the previous sentence,
+// a phrase with a placeholder, and ①② lost as NUL characters.
+const GPT_PDF = `/ˈlʌv.li/
+## Lovely ★★★★
+1. We had a lovely dinner by the sea.
+2. That sounds lovely to me.
+### 中文翻譯
+1. 我們在海邊吃了一頓美好的晚餐。
+2. 聽起來很棒。
+Lovely：美好的、迷人的。可以形容人或事物。
+### 常見搭配
+- a lovely meal — 一頓美好的餐點
+- How lovely! — 真美好！
+### 詞性變化
+- lovely (adj.) — 美好的
+- loveliness (n.) — 美好之處
+### 拆解記憶
+love + -ly → lovely
+### 最快記法：Lovely = 讓人感覺很美好
+例如：The sweetness is lovely.
+/dɪˈplɔɪ/
+## Deploy ★★★
+1. We plan to deploy the system next month.
+2. They deployed more troops to the border.### 中文翻譯
+1. 我們計畫下個月部署系統。
+2. 他們向邊境部署了更多部隊。
+部署、調度；把人員或系統投入實際使用。
+### 常見搭配
+- deploy troops — 部署軍隊
+### 科技領域特別常見的用法
+在軟體工程中，deploy 指把程式發布到正式環境。
+Develop → Test → Deploy
+### 詞性變化
+- deployment (n.) — 部署
+deploy 的名詞最常用 deployment。
+### 拆解記憶
+de- + ploy
+### 最快記法：Deploy = 投入使用
+/beɪs/
+## Base (something) on ★★★★
+1. The movie is based on a true story.
+2. We should base our decision on facts.
+### 中文翻譯
+1. 這部電影是根據真實故事改編的。
+2. 我們應該根據事實做決定。
+Base something on something：以某事物為基礎。
+### 常見搭配
+- be based on — 以……為基礎
+### 詞性變化
+- basis (n.) — 基礎
+### 拆解記憶
+先有 base 才能往上蓋。
+### 最快記法：正式寫作用 based on
+/ˈteɪlˌɡeɪt/
+## Tailgate ★★★★
+1. The driver behind me was tailgating.
+2. We had a tailgate party before the game.
+### 中文翻譯
+1. 後面的駕駛一直緊跟著我。
+2. 我們在比賽前辦了停車場派對。
+Tailgate：最常見有兩個意思：\u0000（開車時）緊跟前車；\u0000 汽車的尾門。
+### 常見搭配
+- tailgate someone — 緊跟某人的車
+### 詞性變化
+- tailgater (n.) — 緊跟前車的駕駛
+### 拆解記憶
+tail + gate
+### 最快記法：Tailgate = 貼著車尾`;
+
+test('ChatGPT markdown saved as PDF: every word and section lands correctly', () => {
+  const { cards, warnings, errors } = parseVocab(GPT_PDF);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(cards.map((c) => c.word), ['lovely', 'deploy', 'base (something) on', 'tailgate']);
+  assert.deepEqual(cards.map((c) => c.ipa), ['/ˈlʌv.li/', '/dɪˈplɔɪ/', '/beɪs/', '/ˈteɪlˌɡeɪt/']);
+  assert.deepEqual(cards.map((c) => c.aiStars), [4, 3, 4, 4]);
+  for (const c of cards) {
+    assert.equal(c.en.length, 2, `${c.word} en`);
+    assert.equal(c.zh.length, 2, `${c.word} zh`);
+  }
+  const [lovely, deploy, base] = cards;
+  assert.equal(lovely.meaning, '美好的、迷人的。可以形容人或事物。');
+  assert.equal(lovely.collocations.length, 2);
+  assert.equal(lovely.quick, 'Lovely = 讓人感覺很美好\n例如：The sweetness is lovely.');
+  // unlabeled meaning after the translations, glued heading split off
+  assert.equal(deploy.meaning, '部署、調度；把人員或系統投入實際使用。');
+  assert.deepEqual(deploy.extras.map((x) => x.title), ['科技領域特別常見的用法']);
+  assert.match(deploy.extras[0].text, /Develop → Test → Deploy/);
+  assert.deepEqual(deploy.forms[1], { note: 'deploy 的名詞最常用 deployment。' });
+  // English lead-in before the colon is dropped
+  assert.equal(base.meaning, '以某事物為基礎。');
+});
+
+test('NUL characters from unmapped glyphs are stripped by the parser', () => {
+  const t = parseVocab(GPT_PDF).cards[3];
+  assert.equal(t.word, 'tailgate');
+  assert.ok(!t.meaning.includes('\u0000'));
+});
