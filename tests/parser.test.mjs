@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { parseVocab } from '../js/parser.js';
 
 const sample = readFileSync(new URL('../samples/sample-words.txt', import.meta.url), 'utf8');
+const flagship = readFileSync(new URL('../samples/flagship.txt', import.meta.url), 'utf8');
 
 test('strict template: three words with every field', () => {
   const { cards, warnings, errors } = parseVocab(sample);
@@ -112,4 +113,80 @@ test('multi-word phrase keeps its spaces, empty input is empty', () => {
   const { cards } = parseVocab('# take for granted\nEN: Never take it for granted.\nZH: 別把它視為理所當然。\n意思: 視為理所當然');
   assert.equal(cards[0].word, 'take for granted');
   assert.equal(parseVocab('   \n\n').cards.length, 0);
+});
+
+test('full flagship entry: every section lands in its own field', () => {
+  const { cards, warnings, errors } = parseVocab(flagship);
+  assert.equal(errors.length, 0);
+  assert.equal(warnings.length, 0);
+  const c = cards[0];
+  assert.equal(c.word, 'flagship');
+  assert.equal(c.aiStars, 4);
+  assert.equal(c.en.length, 2);
+  assert.equal(c.zh.length, 2);
+  assert.equal(c.collocations.length, 6);
+  assert.deepEqual(c.collocations[2], { p: 'flagship store', zh: '旗艦店' });
+  assert.equal(c.compares.length, 1);
+  assert.equal(c.compares[0].title, 'Flagship vs. Premium vs. Mainstream');
+  assert.deepEqual(c.compares[0].items.map((x) => x.p), ['flagship', 'premium', 'mainstream']);
+  assert.equal(c.forms.length, 3);
+  assert.deepEqual(c.forms[0], { p: 'flagship（n. / adj.）', zh: '旗艦；旗艦級的' });
+  assert.equal(c.forms[2].p, 'flagship-level（adj.）');
+  assert.match(c.memory, /^flag（旗幟）＋ ship/);
+  assert.match(c.memory, /主力艦/);
+  assert.equal(c.quick, 'Flagship = 品牌拿來當門面的代表作。');
+  // No explicit 意思 line: falls back to the headword's 詞性變化 entry.
+  assert.equal(c.meaning, '旗艦；旗艦級的');
+});
+
+test('many words back to back without separators (PDF style)', () => {
+  const second = `Entail ⭐⭐⭐
+Starting a business entails taking financial risks.
+The job entails working long hours and traveling frequently.
+中文翻譯
+創業必然涉及承擔財務風險。
+這份工作需要長時間工作，並且經常出差。
+Entail：涉及、必然需要
+常見搭配
+entail risks — 涉及風險`;
+  const bare = `meticulous
+She is meticulous about keeping her notes organized.
+The report shows meticulous attention to detail.
+中文翻譯
+她對筆記的整理一絲不苟。
+這份報告展現了對細節的一絲不苟。
+意思: 一絲不苟的`;
+  const { cards, errors } = parseVocab(`${flagship}\n${second}\n\n${bare}`);
+  assert.equal(errors.length, 0);
+  assert.deepEqual(cards.map((c) => c.word), ['flagship', 'entail', 'meticulous']);
+  assert.equal(cards[0].quick, 'Flagship = 品牌拿來當門面的代表作。');
+  assert.equal(cards[1].aiStars, 3);
+  assert.equal(cards[1].meaning, '涉及、必然需要');
+  assert.equal(cards[2].en.length, 2);
+});
+
+test('IPA from the heading or an 音標 line', () => {
+  const a = parseVocab('Flagship /ˈflæɡ.ʃɪp/ ⭐⭐⭐\nA flagship store.\n中文翻譯\n旗艦店。\n意思: 旗艦').cards[0];
+  assert.equal(a.word, 'flagship');
+  assert.equal(a.ipa, '/ˈflæɡ.ʃɪp/');
+  const b = parseVocab('# entail\n音標: /ɪnˈteɪl/\nEN: It entails risk.\nZH: 它涉及風險。\n意思: 涉及').cards[0];
+  assert.equal(b.ipa, '/ɪnˈteɪl/');
+  assert.equal(b.en.length, 1);
+});
+
+test('the AI prompt example parses cleanly', async () => {
+  const { AI_PROMPT } = await import('../js/parser.js');
+  const example = AI_PROMPT.split('範例：\n')[1].split('\n---')[0];
+  const { cards, warnings } = parseVocab(example);
+  assert.equal(cards.length, 1);
+  assert.equal(warnings.length, 0);
+  assert.equal(cards[0].ipa, '/ˈflæɡ.ʃɪp/');
+  assert.equal(cards[0].meaning, '（n. / adj.）旗艦；旗艦級的、最具代表性的');
+  assert.equal(cards[0].compares[0].items.length, 3);
+});
+
+test('junk preface (e.g. a PDF title) is reported, not turned into a card', () => {
+  const { cards, errors } = parseVocab(`My Vocabulary Notes — Week 3\n\n${flagship}`);
+  assert.deepEqual(cards.map((c) => c.word), ['flagship']);
+  assert.equal(errors.length, 1);
 });

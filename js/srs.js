@@ -1,12 +1,13 @@
-// Review scheduling. Day-based ladders per importance level.
-//   3 stars: speaking-critical, reviewed again and again (never retires).
-//   2 stars: important but less common, three more reviews then mastered.
-//   1 star : hard / rare, one more review then mastered.
+// Review scheduling. Day-based intervals per importance level, counted from
+// the previous review:
+//   3 stars: reviewed on day 5 and day 10 after first study, then mastered.
+//   2 stars: reviewed once on day 10, then mastered.
+//   1 star : seen once when first studied, no further reviews.
 
 export const LADDERS = {
-  3: [1, 3, 7, 14, 30, 60, 120],
-  2: [3, 10, 30],
-  1: [7],
+  3: [5, 5],
+  2: [10],
+  1: [],
 };
 
 export const STAR_LABELS = { 3: '最重要', 2: '重要', 1: '艱深少用' };
@@ -49,16 +50,10 @@ export function isDue(card, today = todayStr()) {
 
 /** First time the card is seen: the learner picks 1-3 stars. */
 export function firstRating(card, stars, today = todayStr()) {
-  return {
-    ...card,
-    stars,
-    status: 'active',
-    step: 0,
-    relearn: false,
-    due: addDays(today, LADDERS[stars][0]),
-    reps: card.reps + 1,
-    lastReviewed: today,
-  };
+  const ladder = LADDERS[stars];
+  const base = { ...card, stars, step: 0, relearn: false, reps: card.reps + 1, lastReviewed: today };
+  if (!ladder.length) return { ...base, status: 'mastered', due: null };
+  return { ...base, status: 'active', due: addDays(today, ladder[0]) };
 }
 
 /** Where the card goes next for each grade, without mutating it. */
@@ -84,10 +79,7 @@ export function review(card, grade, today = todayStr()) {
   const advance = grade === 'easy' ? 2 : 1;
   const step = card.step + advance;
   if (step >= ladder.length) {
-    if (card.stars === 3) {
-      return { ...next, relearn: false, step: ladder.length - 1, due: addDays(today, ladder[ladder.length - 1]) };
-    }
-    return { ...next, relearn: false, step: ladder.length - 1, status: 'mastered', due: null };
+    return { ...next, relearn: false, step: Math.max(0, ladder.length - 1), status: 'mastered', due: null };
   }
   return { ...next, relearn: false, step, due: addDays(today, ladder[step]) };
 }
@@ -104,6 +96,7 @@ export function previewInterval(card, grade, today = todayStr()) {
 export function changeStars(card, stars, today = todayStr()) {
   if (card.status === 'new') return { ...card, stars };
   const ladder = LADDERS[stars];
+  if (!ladder.length) return { ...card, stars, status: 'mastered', relearn: false, due: null };
   if (card.status === 'mastered') {
     return { ...card, stars, status: 'active', step: 0, relearn: false, due: addDays(today, ladder[0]) };
   }

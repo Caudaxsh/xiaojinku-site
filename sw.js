@@ -1,5 +1,5 @@
 // Offline cache. Bump CACHE whenever any app file changes so phones pick up the update.
-const CACHE = 'xiaojinku-v1';
+const CACHE = 'xiaojinku-v2';
 const ASSETS = [
   './',
   'index.html',
@@ -9,11 +9,14 @@ const ASSETS = [
   'js/parser.js',
   'js/srs.js',
   'js/store.js',
+  'js/audio.js',
+  'js/pdf.js',
   'icons/icon.svg',
   'icons/icon-180.png',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'samples/sample-words.txt',
+  'samples/flagship.txt',
 ];
 
 self.addEventListener('install', (event) => {
