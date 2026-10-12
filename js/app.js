@@ -32,6 +32,20 @@ const ICON_X = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M
 const starsHtml = (n) => `<span class="stars" aria-label="${n} 顆星">${'★'.repeat(n)}<span class="off">${'★'.repeat(Math.max(0, 3 - n))}</span></span>`;
 const cardById = (id) => S.cards.find((c) => c.id === id);
 
+/** Two-tap confirmation that works everywhere (no browser dialog). Returns true on the second tap. */
+function armed(el, text) {
+  if (el.dataset.armed) return true;
+  const label = el.textContent;
+  el.dataset.armed = '1';
+  el.textContent = text;
+  setTimeout(() => {
+    if (!el.isConnected) return;
+    el.textContent = label;
+    delete el.dataset.armed;
+  }, 4000);
+  return false;
+}
+
 const speakBtn = (text, kind, cls = 'mini-speak', label = '發音') =>
   `<button class="${cls}" data-act="speak" data-kind="${kind}" data-text="${esc(text)}" aria-label="${label}">${ICON_SPEAK}${cls === 'speak-big' ? '<span>發音</span>' : ''}</button>`;
 
@@ -855,11 +869,10 @@ const actions = {
   adjust: (el) => adjustStars(Number(el.dataset.stars)),
   'exit-study': () => {
     if (!S.study) return;
-    if (S.study.i === 0 || S.study.practice || confirm('要結束今天的學習嗎？已完成的進度都會保留。')) {
-      const back = S.study.practice ? 'library' : 'today';
-      S.study = null;
-      go(back);
-    }
+    // Every rating is saved as it happens, so leaving never loses progress.
+    const back = S.study.practice ? 'library' : 'today';
+    S.study = null;
+    go(back);
   },
   'more-new': () => { newState().bonus += 10; saveMeta('newToday', S.newToday); renderToday(); },
   'more-new-start': () => { newState().bonus += 10; saveMeta('newToday', S.newToday); S.study = null; startStudy(); },
@@ -887,7 +900,7 @@ const actions = {
   },
   'delete-card': async (el) => {
     const c = cardById(el.dataset.id);
-    if (!confirm(`刪除「${c.word}」？此動作無法復原。`)) return;
+    if (!armed(el, `再按一次，確認刪除「${c.word}」`)) return;
     await S.store.remove(c.id);
     S.cards = S.cards.filter((x) => x.id !== c.id);
     closeSheet();
@@ -929,9 +942,8 @@ const actions = {
     await saveMeta('settings', S.settings);
   },
   export: exportBackup,
-  wipe: async () => {
-    if (!confirm('確定要清除所有單字與進度嗎？')) return;
-    if (!confirm('再確認一次：這會刪除全部資料，且無法復原。')) return;
+  wipe: async (el) => {
+    if (!armed(el, '再按一次，確認清除全部資料（無法復原）')) return;
     await S.store.clear();
     S.cards = []; S.days = []; S.settings = { ...DEFAULT_SETTINGS }; S.newToday = { date: '', count: 0, bonus: 0 };
     toast('已清除');
