@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { parseVocab } from '../js/parser.js';
+import { parseVocab, normalizeText, CARD_TEMPLATE, AI_PROMPT_PDF, AI_PROMPT_TEXT } from '../js/parser.js';
 
 const sample = readFileSync(new URL('../samples/sample-words.txt', import.meta.url), 'utf8');
 const flagship = readFileSync(new URL('../samples/flagship.txt', import.meta.url), 'utf8');
@@ -174,120 +174,204 @@ test('IPA from the heading or an 音標 line', () => {
   assert.equal(b.en.length, 1);
 });
 
-test('the AI prompt example parses cleanly', async () => {
-  const { AI_PROMPT } = await import('../js/parser.js');
-  const example = AI_PROMPT.split('範例：\n')[1].split('\n---')[0];
-  const { cards, warnings } = parseVocab(example);
-  assert.equal(cards.length, 1);
-  assert.equal(warnings.length, 0);
-  assert.equal(cards[0].ipa, '/ˈflæɡ.ʃɪp/');
-  assert.equal(cards[0].meaning, '（n. / adj.）旗艦；旗艦級的、最具代表性的');
-  assert.equal(cards[0].compares[0].items.length, 3);
-});
-
 test('junk preface (e.g. a PDF title) is reported, not turned into a card', () => {
   const { cards, errors } = parseVocab(`My Vocabulary Notes — Week 3\n\n${flagship}`);
   assert.deepEqual(cards.map((c) => c.word), ['flagship']);
-  assert.equal(errors.length, 1);
+  assert.equal(errors.length, 0);
+  assert.equal(parseVocab(`My Vocabulary Notes — Week 3\n\n${flagship}`).ignored.length, 1);
 });
 
-// Layout produced when ChatGPT's markdown is saved straight to PDF:
-// IPA above the headword, "##"/"###" kept as text, unlabeled meaning,
-// a custom "###" section, a heading glued to the previous sentence,
-// a phrase with a placeholder, and ①② lost as NUL characters.
-const GPT_PDF = `/ˈlʌv.li/
-## Lovely ★★★★
-1. We had a lovely dinner by the sea.
-2. That sounds lovely to me.
+// Layout produced when ChatGPT's markdown is saved straight to PDF (invented vocabulary):
+// IPA above the headword, "##"/"###" kept as text, unlabeled meaning, a custom
+// "###" section, a heading glued to the previous sentence, a phrase with a
+// placeholder, and circled digits lost as NUL characters.
+const MD_PDF = `/rɪˈzɪl.i.ənt/
+## Resilient ★★★★
+1. She stayed resilient after losing her job.
+2. Small shops are often more resilient than big chains.
 ### 中文翻譯
-1. 我們在海邊吃了一頓美好的晚餐。
-2. 聽起來很棒。
-Lovely：美好的、迷人的。可以形容人或事物。
+1. 她失業後依然保持堅韌。
+2. 小型商店往往比大型連鎖店更有韌性。
+Resilient：有韌性的、能迅速恢復的。可以形容人、組織或系統。
 ### 常見搭配
-- a lovely meal — 一頓美好的餐點
-- How lovely! — 真美好！
+- a resilient economy — 有韌性的經濟
+- remain resilient — 保持堅韌
 ### 詞性變化
-- lovely (adj.) — 美好的
-- loveliness (n.) — 美好之處
+- resilient (adj.) — 有韌性的
+- resilience (n.) — 韌性、復原力
 ### 拆解記憶
-love + -ly → lovely
-### 最快記法：Lovely = 讓人感覺很美好
-例如：The sweetness is lovely.
-/dɪˈplɔɪ/
-## Deploy ★★★
-1. We plan to deploy the system next month.
-2. They deployed more troops to the border.### 中文翻譯
-1. 我們計畫下個月部署系統。
-2. 他們向邊境部署了更多部隊。
-部署、調度；把人員或系統投入實際使用。
+re-（回）＋ sil（跳）→ 跳回來
+### 最快記法：Resilient = 跌倒了還會彈回來
+例如：Kids are resilient.
+/ˈpɪv.ət/
+## Pivot ★★★
+1. The company decided to pivot to online sales.
+2. He used his left foot as a pivot.### 中文翻譯
+1. 這家公司決定轉向線上銷售。
+2. 他以左腳為軸心轉身。
+轉向、以…為軸心旋轉；樞紐。
 ### 常見搭配
-- deploy troops — 部署軍隊
-### 科技領域特別常見的用法
-在軟體工程中，deploy 指把程式發布到正式環境。
-Develop → Test → Deploy
+- pivot to — 轉向
+### 技術與商業用法
+在新創圈，pivot 指改變商業方向。
+Idea → Test → Pivot
 ### 詞性變化
-- deployment (n.) — 部署
-deploy 的名詞最常用 deployment。
+- pivot (v.) — 轉向
+pivot 作名詞時指「軸心」。
 ### 拆解記憶
-de- + ploy
-### 最快記法：Deploy = 投入使用
-/beɪs/
-## Base (something) on ★★★★
-1. The movie is based on a true story.
-2. We should base our decision on facts.
+pi + vot
+### 最快記法：Pivot = 繞著一點轉
+/set/
+## Set (something) up ★★★★
+1. They set up a meeting for Friday.
+2. I need to set the printer up before noon.
 ### 中文翻譯
-1. 這部電影是根據真實故事改編的。
-2. 我們應該根據事實做決定。
-Base something on something：以某事物為基礎。
+1. 他們安排了週五的會議。
+2. 我得在中午前把印表機裝好。
+Set something up：安排、設置、建立。
 ### 常見搭配
-- be based on — 以……為基礎
+- set up a meeting — 安排會議
 ### 詞性變化
-- basis (n.) — 基礎
+- setup (n.) — 設置
 ### 拆解記憶
-先有 base 才能往上蓋。
-### 最快記法：正式寫作用 based on
-/ˈteɪlˌɡeɪt/
-## Tailgate ★★★★
-1. The driver behind me was tailgating.
-2. We had a tailgate party before the game.
+把東西「擺設」起來
+### 最快記法：Set up = 把東西弄好
+/ˈmiːnɪŋ/
+## Mean ★★★
+1. What does this word mean?
+2. He didn't mean to hurt you.
 ### 中文翻譯
-1. 後面的駕駛一直緊跟著我。
-2. 我們在比賽前辦了停車場派對。
-Tailgate：最常見有兩個意思：\u0000（開車時）緊跟前車；\u0000 汽車的尾門。
+1. 這個字是什麼意思？
+2. 他不是故意要傷害你。
+Mean：最常見有兩個意思：\u0000 表示、意思是；\u0000 打算、有意。
 ### 常見搭配
-- tailgate someone — 緊跟某人的車
+- mean to do — 打算做
 ### 詞性變化
-- tailgater (n.) — 緊跟前車的駕駛
+- mean (v.) — 表示
 ### 拆解記憶
-tail + gate
-### 最快記法：Tailgate = 貼著車尾`;
+mean 和 mind 同源
+### 最快記法：Mean = 想表達的意思`;
 
 test('ChatGPT markdown saved as PDF: every word and section lands correctly', () => {
-  const { cards, warnings, errors } = parseVocab(GPT_PDF);
+  const { cards, warnings, errors } = parseVocab(MD_PDF);
   assert.deepEqual(errors, []);
   assert.deepEqual(warnings, []);
-  assert.deepEqual(cards.map((c) => c.word), ['lovely', 'deploy', 'base (something) on', 'tailgate']);
-  assert.deepEqual(cards.map((c) => c.ipa), ['/ˈlʌv.li/', '/dɪˈplɔɪ/', '/beɪs/', '/ˈteɪlˌɡeɪt/']);
-  assert.deepEqual(cards.map((c) => c.aiStars), [4, 3, 4, 4]);
+  assert.deepEqual(cards.map((c) => c.word), ['resilient', 'pivot', 'set (something) up', 'mean']);
+  assert.deepEqual(cards.map((c) => c.ipa), ['/rɪˈzɪl.i.ənt/', '/ˈpɪv.ət/', '/set/', '/ˈmiːnɪŋ/']);
+  assert.deepEqual(cards.map((c) => c.aiStars), [4, 3, 4, 3]);
   for (const c of cards) {
     assert.equal(c.en.length, 2, `${c.word} en`);
     assert.equal(c.zh.length, 2, `${c.word} zh`);
   }
-  const [lovely, deploy, base] = cards;
-  assert.equal(lovely.meaning, '美好的、迷人的。可以形容人或事物。');
-  assert.equal(lovely.collocations.length, 2);
-  assert.equal(lovely.quick, 'Lovely = 讓人感覺很美好\n例如：The sweetness is lovely.');
-  // unlabeled meaning after the translations, glued heading split off
-  assert.equal(deploy.meaning, '部署、調度；把人員或系統投入實際使用。');
-  assert.deepEqual(deploy.extras.map((x) => x.title), ['科技領域特別常見的用法']);
-  assert.match(deploy.extras[0].text, /Develop → Test → Deploy/);
-  assert.deepEqual(deploy.forms[1], { note: 'deploy 的名詞最常用 deployment。' });
+  const [resilient, pivot, setUp, mean] = cards;
+  assert.equal(resilient.meaning, '有韌性的、能迅速恢復的。可以形容人、組織或系統。');
+  assert.equal(resilient.quick, 'Resilient = 跌倒了還會彈回來\n例如：Kids are resilient.');
+  // unlabeled meaning after the translations; glued heading split off; custom section kept
+  assert.equal(pivot.meaning, '轉向、以…為軸心旋轉；樞紐。');
+  assert.deepEqual(pivot.extras.map((x) => x.title), ['技術與商業用法']);
+  assert.match(pivot.extras[0].text, /Idea → Test → Pivot/);
+  assert.deepEqual(pivot.forms[1], { note: 'pivot 作名詞時指「軸心」。' });
   // English lead-in before the colon is dropped
-  assert.equal(base.meaning, '以某事物為基礎。');
+  assert.equal(setUp.meaning, '安排、設置、建立。');
+  // NUL (a glyph the PDF font lacked) never reaches the card
+  assert.ok(!JSON.stringify(mean).includes('\u0000'));
+  assert.match(mean.meaning, /最常見有兩個意思/);
 });
 
-test('NUL characters from unmapped glyphs are stripped by the parser', () => {
-  const t = parseVocab(GPT_PDF).cards[3];
-  assert.equal(t.word, 'tailgate');
-  assert.ok(!t.meaning.includes('\u0000'));
+test('official card template parses with nothing lost and no warnings', () => {
+  const { cards, warnings, errors } = parseVocab(`${CARD_TEMPLATE}\n${CARD_TEMPLATE.replace('Flagship', 'Premium').replace('flagship', 'premium')}`);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(cards.map((c) => c.word), ['flagship', 'premium']);
+  const c = cards[0];
+  assert.equal(c.ipa, '/ˈflæɡ.ʃɪp/');
+  assert.equal(c.aiStars, 4);
+  assert.equal(c.meaning, '旗艦；旗艦級的');
+  assert.equal(c.meaningMore.split('\n').length, 2);
+  assert.ok(c.meaningMore.startsWith('• （n.）'));
+  assert.equal(c.collocations.length, 5);
+  assert.equal(c.compares.length, 1);
+  assert.equal(c.compares[0].items.length, 3);
+  assert.equal(c.forms.length, 3);
+  assert.match(c.memory, /^flag（旗幟）＋ ship/);
+  assert.equal(c.quick, 'Flagship = 品牌拿來當門面的代表作');
+});
+
+test('both GPT prompts embed the template and the numbered content rules', () => {
+  for (const prompt of [AI_PROMPT_PDF, AI_PROMPT_TEXT]) {
+    assert.ok(prompt.includes(CARD_TEMPLATE));
+    assert.match(prompt, /不要使用 ①②③/);
+    assert.match(prompt, /我的單字清單/);
+  }
+  assert.match(AI_PROMPT_PDF, /A4 直式/);
+  assert.match(AI_PROMPT_PDF, /完成，共 N 個單字/);
+  assert.doesNotMatch(AI_PROMPT_TEXT, /A4/);
+});
+
+test('rules document stays in sync with the PDF prompt in the app', () => {
+  const doc = readFileSync(new URL('../docs/gpt-pdf-rules.md', import.meta.url), 'utf8');
+  assert.ok(doc.includes(AI_PROMPT_PDF.trim()), 'docs/gpt-pdf-rules.md must contain the current PDF prompt verbatim');
+});
+
+test('normalizeText: nbsp, zero-width, full-width digits, bullets and glued headings', () => {
+  assert.equal(normalizeText('a\u00a0b\u200bc\ufeffd'), 'a bcd');
+  assert.equal(normalizeText('１．第一句'), '1. 第一句');
+  assert.equal(normalizeText('Done.### 中文翻譯'), 'Done.\n### 中文翻譯');
+  const { cards } = parseVocab(`## Sturdy ★★★
+1．This chair is sturdy.
+2．The box is not very sturdy.
+### 中文翻譯
+１．這張椅子很堅固。
+２．這個箱子不太牢固。
+### 意思
+堅固的
+### 常見搭配
+● sturdy shoes — 耐穿的鞋
+○ a sturdy frame — 堅固的框架`);
+  assert.equal(cards.length, 1);
+  assert.equal(cards[0].en.length, 2);
+  assert.equal(cards[0].zh.length, 2);
+  assert.equal(cards[0].collocations.length, 2);
+});
+
+test('headings in other shapes: numbered, bold, IPA inline, IPA under the word', () => {
+  const text = `## 1. Sturdy (adj.) ★★★
+音標：/ˈstɝː.di/
+1. The shelf is sturdy.
+2. She wore sturdy boots.
+### 中文翻譯
+1. 這個架子很堅固。
+2. 她穿著耐穿的靴子。
+### 意思
+堅固的
+---
+**Frail** /freɪl/ ★★
+1. The old man looked frail.
+2. A frail branch snapped.
+中文翻譯
+1. 那位老人看起來很虛弱。
+2. 一根脆弱的樹枝斷了。
+意思: 虛弱的、脆弱的`;
+  const { cards, warnings, errors } = parseVocab(text);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(warnings, []);
+  assert.deepEqual(cards.map((c) => c.word), ['sturdy', 'frail']);
+  assert.equal(cards[0].ipa, '/ˈstɝː.di/');
+  assert.equal(cards[1].ipa, '/freɪl/');
+});
+
+test('a sentence mistaken for a word is flagged', () => {
+  const { warnings } = parseVocab(`## This is clearly not a single vocabulary word at all ★★★
+1. Example sentence number one is here.
+2. Example sentence number two is here.
+### 中文翻譯
+1. 範例一。
+2. 範例二。
+### 意思
+不是單字`);
+  assert.ok(warnings.some((w) => w.msgs.some((m) => m.includes('單字名稱看起來不對'))));
+});
+
+test('NUL characters from unmapped glyphs are stripped by the parser itself', () => {
+  assert.ok(!parseVocab('# x\nEN: A \u0000 b.\nZH: 甲\u0000乙。\n意思: 丙').cards[0].en[0].includes('\u0000'));
 });

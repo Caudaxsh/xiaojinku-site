@@ -15,7 +15,7 @@ const SECTIONS = {
   meaning: ['中文意思', '中文解釋', '中文解释', '意思', '釋義', '释义', '解釋', '解释', '詞義', '词义', '含義', '含义', '定義', '中文', 'meaning', 'definition'],
   collocations: ['常見搭配', '常见搭配', '常用搭配', '搭配詞', '搭配词', '常見片語', '搭配', '片語', '片语', '詞組', '词组', 'collocations', 'collocation', 'phrases'],
   forms: ['詞性變化', '词性变化', '詞形變化', '词形变化', '詞類變化', '字形變化', '衍生詞', '衍生词', '相關詞', '相关词', '詞性', '词性', 'word forms', 'forms'],
-  compare: ['易混淆字', '易混淆', '比較', '比较', '辨析', '差異', '差异', '區別', '区别', 'comparison', 'compare'],
+  compare: ['易混淆字比較', '易混淆比較', '相近字比較', '相似字比較', '易混淆字', '易混淆', '比較', '比较', '辨析', '差異', '差异', '區別', '区别', 'comparison', 'compare'],
   memory: ['拆解記憶', '拆解记忆', '記憶方式', '记忆方式', '記憶方法', '记忆方法', '記憶技巧', '字根記憶', '記憶法', '记忆法', '字根', '字源', '拆解', '記憶', '记忆', '聯想', '联想', '助記', '助记', 'mnemonic', 'memory', 'etymology'],
   quick: ['最快記法', '最快记法', '快速記法', '快速記憶', '一句話記', '一句话记', '速記', '速记', '口訣', '口诀', 'quick tip'],
   synonyms: ['同反義詞', '同義詞', '同义词', '近義詞', '近义词', '反義詞', '反义词', 'synonyms', 'synonym', 'antonyms'],
@@ -35,8 +35,24 @@ const LABEL_RES = Object.entries(SECTIONS)
   }));
 
 const SEPARATOR = /^(?:-{3,}|\*{3,}|_{3,}|={3,}|—{2,})$/;
-const LIST_MARKER = /^(?:[-*•·▪◦]|\d+\s*[.)、]|[（(]\d+[)）]|[①-⑩])\s*/;
+const LIST_MARKER = /^(?:[-*•·▪◦●○■◆◇▸▶➤‣◉–]|\d+\s*[.)、]|[（(]\d+[)）]|[①-⑩])\s*/;
 const IPA_RE = /([/[])([^/\]\n]{1,40})[/\]]/;
+
+const FULLWIDTH_DIGITS = /[０-９]/g;
+
+/** Make text from different PDF tools look alike before any parsing. */
+export function normalizeText(input) {
+  return String(input || '')
+    .replace(/\r\n?|\u2028|\u2029/g, '\n')
+    .replace(/\u0000/g, '')
+    .replace(/[\u200b-\u200d\u2060\ufeff\u00ad]/g, '')
+    .replace(/[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/g, ' ')
+    .replace(FULLWIDTH_DIGITS, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0))
+    .replace(/^([ \t]*\d+)[．。][ \t]*/gm, '$1. ')
+    .replace(/＃/g, '#')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/([.!?。！？」”)])[ \t]*(#{2,6})[ \t]*(?=[^\s#])/g, '$1\n$2 ');
+}
 
 function stripMarkdown(line) {
   return line.replace(/\r/g, '').replace(/^\s*#{1,6}\s*/, '').replace(/\*\*|__|`/g, '').trim();
@@ -56,6 +72,8 @@ function matchLabel(text) {
 /** "Flagship vs. Premium vs. Mainstream" or "flagship 和 premium 的差別" */
 function compareTitle(text) {
   const t = stripLead(text);
+  // A list item such as "- other — 另一個字的差別" is content, never a title.
+  if (LIST_MARKER.test(t) || /[—–]/.test(t)) return null;
   if (t.length <= 100 && !CJK.test(t) && /\bvs\.?(\s|$)/i.test(t)) return t;
   if (t.length <= 40 && /(比較|比较|差異|差异|差別|差别|區別|区别|辨析)$/.test(t) && /[a-z]/i.test(t)) return t;
   return null;
@@ -187,6 +205,7 @@ function parseBlock(lines) {
     en: [],
     zh: [],
     meaning: '',
+    meaningMore: '',
     collocations: [],
     forms: [],
     compares: [],
@@ -227,7 +246,7 @@ function parseBlock(lines) {
     } else if (key === 'extra') {
       const ex = card.extras[card.extras.length - 1];
       ex.text = ex.text ? `${ex.text}\n${bulletize(row)}` : bulletize(row);
-    } else if (key === 'meaning') addText('meaning', plain);
+    } else if (key === 'meaning') addText('meaning', LIST_MARKER.test(row) ? `• ${plain}` : plain);
     else addText(key, bulletize(row));
   };
 
@@ -275,7 +294,9 @@ function parseBlock(lines) {
     feed(state, state === 'memory' || state === 'quick' ? stripLead(row) || row : row);
   }
 
-  card.meaning = card.meaning.replace(/\n+/g, '；');
+  const meaningLines = card.meaning.split('\n').filter(Boolean);
+  card.meaning = (meaningLines[0] || '').replace(/^• /, '');
+  card.meaningMore = meaningLines.slice(1).join('\n');
   if (!card.meaning) {
     const key = wordKey(word);
     const form = card.forms.find((f) => f.p && wordKey(f.p).startsWith(key) && f.zh);
@@ -291,16 +312,17 @@ function parseBlock(lines) {
 }
 
 export function parseVocab(text) {
-  const result = { cards: [], warnings: [], errors: [] };
+  const result = { cards: [], warnings: [], errors: [], ignored: [] };
   const seen = new Set();
-  const clean = String(text || '')
-    .replace(/\r\n?/g, '\n')
-    .replace(/\u0000/g, '')
-    .replace(/([.!?。！？」”)])[ \t]*(#{2,6}[ \t]+)/g, '$1\n$2');
+  const clean = normalizeText(text);
   for (const block of splitBlocks(clean)) {
     const parsed = parseBlock(block);
     if (!parsed) continue;
-    if (parsed.error) { result.errors.push(parsed); continue; }
+    if (parsed.error) {
+      // Text before the first word (a PDF title, "Week 3 notes") is not a mistake.
+      (result.cards.length ? result.errors : result.ignored).push(parsed);
+      continue;
+    }
     const { card } = parsed;
     if (!card.word) { result.errors.push({ error: '單字是空的' }); continue; }
     const key = wordKey(card.word);
@@ -316,42 +338,97 @@ export function parseVocab(text) {
       msgs.push(`英文例句 ${card.en.length} 句、翻譯 ${card.zh.length} 句，數量不一致`);
     }
     if (!card.meaning) msgs.push('沒有中文意思');
+    const tokens = card.word.split(/\s+/).length;
+    if (tokens > 5 || card.word.length > 40 || CJK.test(card.word)) {
+      msgs.push('單字名稱看起來不對，可能把句子或標題當成單字了');
+    }
     if (msgs.length) result.warnings.push({ word: card.word, msgs });
     result.cards.push(card);
   }
   return result;
 }
 
-export const AI_PROMPT = `請把我最後列出的英文單字，各自整理成一張單字卡，說明一律用繁體中文。
-請「完全照下面這個範例的結構」輸出，每個單字之間用一行 --- 分隔，不要加任何開場白、結語或多餘說明。
-⭐ 的數量（1–5 顆）代表這個字在日常與職場口說中的實用程度。
-如果這個字沒有容易混淆的字，就省略「A vs. B」那一段。
-
-範例：
-Flagship ⭐⭐⭐⭐
-音標: /ˈflæɡ.ʃɪp/
-This is the company's flagship smartphone, with its most advanced features.
-The brand opened a new flagship store in Taipei.
-中文翻譯
-這是該公司的旗艦智慧型手機，搭載了最先進的功能。
-這個品牌在台北開了一間新的旗艦店。
-意思: （n. / adj.）旗艦；旗艦級的、最具代表性的
-常見搭配
-flagship product — 旗艦產品、主打產品
-flagship store — 旗艦店
-flagship model — 旗艦機型
-Flagship vs. Premium vs. Mainstream
-flagship：品牌最具代表性、通常技術或定位最高階的產品。
-premium：高級的、高品質或高價位的，不一定是品牌最高階。
-mainstream：主流的，面向大多數消費者。
-詞性變化
-flagship（n. / adj.）— 旗艦；旗艦級的
-flagship-level（adj.）— 旗艦級的
-🧩 拆解記憶
+// One card, written exactly as the app reads it best. Used by both prompts below.
+export const CARD_TEMPLATE = `## Flagship ★★★★
+音標：/ˈflæɡ.ʃɪp/
+1. This is the company's flagship smartphone, with its most advanced features.
+2. The brand opened a new flagship store in Taipei.
+### 中文翻譯
+1. 這是該公司的旗艦智慧型手機，搭載了最先進的功能。
+2. 這個品牌在台北開了一間新的旗艦店。
+### 意思
+旗艦；旗艦級的
+- （n.）品牌最具代表性、定位最高階的產品、店面或計畫
+- （adj.）旗艦級的，最頂級的
+### 常見搭配
+- flagship product — 旗艦產品、主打產品
+- flagship store — 旗艦店
+- flagship model — 旗艦機型
+- flagship program — 核心計畫、代表性計畫
+- flagship university — 具代表性的核心大學
+### 易混淆比較
+- flagship — 品牌最具代表性、通常技術或定位最高階的產品
+- premium — 高級的、高價位的，不一定是品牌最高階
+- mainstream — 主流的，面向大多數消費者
+### 詞性變化
+- flagship (n.) — 旗艦
+- flagship (adj.) — 旗艦級的
+- flagship-level (adj.) — 旗艦級的
+### 拆解記憶
 flag（旗幟）＋ ship（船）＝ flagship（旗艦）
 原本指艦隊中懸掛指揮官旗幟的主力艦，後來引申為品牌中最具代表性的產品。
-🧠 最快記法：Flagship = 品牌拿來當門面的代表作。
----
+### 最快記法：Flagship = 品牌拿來當門面的代表作
+---`;
 
-要整理的單字：
+const CONTENT_RULES = `【內容規則】
+1. 單字標題：英文單字寫小寫原形。片語照原樣寫，可替換的部分用括號，例如 base (something) on。標題後面接 1–5 顆「★」，代表這個字在日常與職場口說的實用程度（5 最高）。
+2. 音標：Cambridge 字典的美式音標，寫成「音標：/…/」，放在標題的下一行。
+3. 英文例句：剛好 2 句，各占一行，用 1. 2. 編號。自然、口語、日常或職場可用，長度約 8–20 個字，一定要包含這個單字（可以是變化形態）；片語要完整出現。每句寫成一行，不要自己在句子中間換行。
+4. 中文翻譯：剛好 2 句，順序和英文例句一一對應，用 1. 2. 編號。
+5. 意思：第一行只寫最核心的中文意思，不超過 20 個字，結尾不要加句號，多個意思用「、」或「；」隔開。如果想補充（其他詞性的意思、用法情境），每點一行，用「- 」開頭。
+6. 常見搭配：5–8 項，每項一行：「- 英文搭配 — 中文意思」，中間用破折號「—」。
+7. 易混淆比較（沒有容易混淆的字就整段省略）：每項「- 單字 — 差別說明」，要包含這個字本身。
+8. 詞性變化：每項「- 單字 (詞性) — 中文」，詞性只寫 n. v. adj. adv. 這幾種。
+9. 拆解記憶：字根、拆解或聯想，1–3 行。有公式時用「＋」「＝」連接。
+10. 最快記法：寫成「### 最快記法：」後面直接接一句話。需要補充時，下面每點一行，用「- 」開頭。
+11. 想補充別的內容時，可以自己新增「### 標題」段落，放在「最快記法」之前。
+12. 全程不要使用 ①②③ 這類圓圈數字，也不要用 emoji；列點一律用「- 」，星星一律用「★」。`;
+
+const FOOTER = `
+【我的單字清單】
+（照這個順序，一個都不要漏，也不要自己加字）
 `;
+
+export const AI_PROMPT_PDF = `你要幫我製作「英文單字卡 PDF」。我會在最後列出單字，請為每個單字各做一張卡，全部放進同一個 PDF。
+這個 PDF 會由我的網頁 App 用程式讀取，所以格式必須完全照下面做。
+
+【PDF 規格】
+1. A4 直式、單欄、純文字。字型必須完整顯示繁體中文和音標符號；如果有字變成空白或方塊，請換字型再做。
+2. 不要頁首、頁尾、頁碼、浮水印、封面、目錄、圖片、表格、色塊。
+3. 下面範例裡的 ##、###、「- 」這些符號，要「原樣印在 PDF 上」，不要轉成粗體、大標題或圓點。
+4. 單字之間空一行，並單獨用一行寫 ---。單字順序和我的清單完全一樣。
+5. 一個 PDF 最多 50 個單字，超過就拆成多個 PDF。
+6. 做完後請自己檢查：把 PDF 的文字讀出來，確認單字數量和清單一致、沒有空白方塊或亂碼，有問題先修好再交給我。
+7. 除了 PDF，只回覆一句「完成，共 N 個單字」，不要其他說明。
+
+【每個單字的格式】（標題文字一律照範例，不要改字、不要換順序）
+${CARD_TEMPLATE}
+
+${CONTENT_RULES}
+${FOOTER}`;
+
+export const AI_PROMPT_TEXT = `請幫我把下面的英文單字，各做成一張單字卡。這段文字會由我的網頁 App 用程式讀取，所以格式必須完全照下面做。
+
+【輸出規格】
+1. 直接在對話裡輸出純文字，不要放進程式碼區塊，不要開場白、結語或任何說明。
+2. 下面範例裡的 ##、###、「- 」符號要原樣輸出。
+3. 單字之間空一行，並單獨用一行寫 ---。單字順序和我的清單完全一樣。
+4. 一次最多 50 個單字。
+
+【每個單字的格式】（標題文字一律照範例，不要改字、不要換順序）
+${CARD_TEMPLATE}
+
+${CONTENT_RULES}
+${FOOTER}`;
+
+export const AI_PROMPT = AI_PROMPT_TEXT;

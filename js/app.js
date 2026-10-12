@@ -1,9 +1,9 @@
-import { parseVocab, wordKey, AI_PROMPT } from './parser.js';
+import { parseVocab, wordKey, AI_PROMPT_PDF, AI_PROMPT_TEXT } from './parser.js';
 import * as srs from './srs.js';
 import { createStore } from './store.js';
 import { say, unlockAudio, lookupIpa } from './audio.js';
 
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.1.0';
 const DEFAULT_SETTINGS = { newPerDay: 20, autoPlay: true };
 
 const S = {
@@ -16,6 +16,7 @@ const S = {
   study: null,
   lib: { q: '', filter: 'all' },
   imp: { text: '', result: null, status: '' },
+  lastImport: null,
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -66,8 +67,13 @@ function highlight(sentence, word) {
 const spoken = (word) => word.replace(/[（(]([^)）]*)[)）]/g, '$1').replace(/\s+/g, ' ').trim();
 
 /** Long meanings: the first sentence is the headline, the rest is supporting detail. */
-function meaningHtml(meaning) {
+function meaningHtml(meaning, more = '') {
   if (!meaning) return '';
+  const extra = more ? `<div class="meaning-extra">${textBlock(more, 'meaning-more')}</div>` : '';
+  return meaningHead(meaning) + extra;
+}
+
+function meaningHead(meaning) {
   // "兩個意思：① …；② …" reads best as a short numbered list.
   if (/[①-⑩]/.test(meaning)) {
     const [lead, ...items] = meaning.split(/(?=[①-⑩])/);
@@ -178,7 +184,7 @@ function dueLabel(card) {
 /** Normalize cards saved by an older version so every field exists. */
 function upgradeCard(c) {
   const out = {
-    ipa: '', aiStars: 0, forms: [], compares: [], quick: '', synonyms: '', notes: '', memory: '', meaning: '',
+    ipa: '', aiStars: 0, forms: [], compares: [], quick: '', synonyms: '', notes: '', memory: '', meaning: '', meaningMore: '',
     collocations: [], en: [], zh: [], extras: [],
     ...c,
   };
@@ -338,6 +344,11 @@ function renderToday() {
       <div class="tile"><div class="num">${c.mastered}</div><div class="lbl">已學完</div></div>
     </div>
     ${main}
+    ${S.lastImport && S.lastImport.date === srs.todayStr() && S.lastImport.added.length + S.lastImport.updated.length ? `
+    <div class="panel note banner" style="margin-top:12px">
+      <span>剛匯入 ${S.lastImport.added.length + S.lastImport.updated.length} 個單字（新增 ${S.lastImport.added.length}、更新 ${S.lastImport.updated.length}）。匯入錯了可以復原。</span>
+      <button data-act="undo-import">復原這次匯入</button>
+    </div>` : ''}
     ${showBanner ? `
     <div class="panel note banner" style="margin-top:12px">
       <span>建議先用 Safari 的「分享 → 加入主畫面」，之後都從主畫面開啟。iPhone 上主畫面 App 和 Safari 的資料是分開存的。</span>
@@ -425,7 +436,7 @@ function renderStudy(animate = '') {
           <div><div class="w">${esc(card.word)}</div><p class="ipa" data-ipa-for="${esc(card.id)}">${esc(card.ipa)}</p></div>
           ${speakBtn(card.word, 'word')}
         </div>
-        ${meaningHtml(card.meaning)}
+        ${meaningHtml(card.meaning, card.meaningMore)}
         ${aiHint}
         ${sectionsHtml(secs)}
       </article>`;
@@ -646,7 +657,7 @@ function openCardSheet(id) {
       ${speakBtn(c.word, 'word')}
     </div>
     <p class="muted small" style="margin-top:6px">${c.status === 'new' ? '<span class="chip">NEW</span> ' : `${starsHtml(c.stars)}・`}${dueLabel(c)}${c.lapses ? `・忘記 ${c.lapses} 次` : ''}</p>
-    ${meaningHtml(c.meaning)}
+    ${meaningHtml(c.meaning, c.meaningMore)}
     ${c.en.length ? `<section class="sec tone-ink"><div class="sec-h"><h3>英文例句</h3></div><ol class="pairs">${c.en.map((s) => `<li><p class="zh">${highlight(s, c.word)}</p></li>`).join('')}</ol></section>` : ''}
     ${sectionsHtml(secs, 'sheet')}
     <section class="sec tone-gold"><div class="sec-h"><h3>重要性</h3></div>
@@ -696,13 +707,16 @@ function renderImport() {
     <div class="panel">
       <h2>最省時間的流程</h2>
       <ol class="steps">
-        <li><span><b>複製提示詞</b>，貼給 ChatGPT，後面接上這次要學的整批單字。</span></li>
-        <li><span>ChatGPT 回完後，<b>全選複製</b>貼到下面；或把對話<b>存成 PDF</b> 再上傳。</span></li>
-        <li><span>看預覽確認每個字都切對了，按<b>匯入</b>。</span></li>
+        <li><span>複製下面的<b>提示詞</b>，貼給 ChatGPT，最後接上這次要學的單字（一次最多 50 個）。</span></li>
+        <li><span>用「PDF 版」提示詞，ChatGPT 會直接交給你一個 <b>PDF</b>；用「貼上版」就<b>全選複製</b>它的回覆。</span></li>
+        <li><span>回到這裡上傳或貼上，看預覽確認每個字都切對了，按<b>匯入</b>。</span></li>
       </ol>
       <div class="btn-row" style="margin-top:14px">
-        <button class="btn primary" data-act="copy-prompt">複製 AI 提示詞</button>
-        <button class="btn" data-act="load-sample">載入範例</button>
+        <button class="btn primary" data-act="copy-prompt" data-kind="pdf">複製提示詞（PDF 版）</button>
+        <button class="btn" data-act="copy-prompt" data-kind="text">複製提示詞（貼上版）</button>
+      </div>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn sm" data-act="load-sample">載入範例</button>
       </div>
     </div>
     <div class="panel">
@@ -732,6 +746,7 @@ function cardTags(c) {
     c.compares.length && '比較',
     c.forms.length && `詞性 ${c.forms.length}`,
     c.memory && '拆解記憶',
+    c.meaningMore && '補充意思',
     c.quick && '最快記法',
     c.extras && c.extras.length && `其他段落 ${c.extras.length}`,
     c.notes && '補充',
@@ -763,6 +778,7 @@ function updateImportPreview() {
   const errs = result.errors.map((e) => `<div class="pv err"><div class="t"><b>略過一段</b></div><div class="w">${esc(e.error)}${e.snippet ? `：「${esc(e.snippet)}」` : ''}</div></div>`).join('');
 
   box.innerHTML = `
+    ${result.ignored.length ? `<p class="summary muted small">已略過 PDF 開頭的 ${result.ignored.length} 段文字（${result.ignored.map((e) => `「${esc(e.snippet || '')}」`).join('、')}）。</p>` : ''}
     <p class="summary">解析到 <b>${result.cards.length}</b> 個單字${updating ? `（新增 <b>${adding}</b>、更新 <b>${updating}</b>）` : ''}${result.warnings.length ? `，<b>${result.warnings.length}</b> 個需要留意` : ''}${result.errors.length ? `，略過 <b>${result.errors.length}</b> 段` : ''}</p>
     ${button}
     <div class="preview">${errs}${items}</div>
@@ -776,17 +792,23 @@ async function doImport() {
   const base = Date.now();
   let added = 0;
   let updated = 0;
+  const addedIds = [];
+  const previous = [];
   const out = result.cards.map((fields, i) => {
     const id = wordKey(fields.word);
     const prev = byId.get(id);
     if (prev) {
       updated += 1;
+      previous.push(prev);
       return { ...prev, ...fields, ipa: fields.ipa || prev.ipa, id };
     }
     added += 1;
+    addedIds.push(id);
     return srs.newCard({ id, ...fields, order: base + i });
   });
   await saveCards(out);
+  S.lastImport = { date: srs.todayStr(), added: addedIds, updated: previous };
+  await saveMeta('lastImport', S.lastImport);
   S.imp = { text: '', result: null, status: '' };
   const perDay = S.settings.newPerDay;
   toast(`已匯入：新增 ${added}${updated ? `、更新 ${updated}` : ''}${added > perDay ? `（每天出 ${perDay} 個新字）` : ''}`);
@@ -805,9 +827,18 @@ async function readFileInto(file) {
   try {
     if (isPdf) {
       setImportStatus('正在讀取 PDF…');
-      const { pdfToText } = await import('./pdf.js');
-      S.imp.text = await pdfToText(file, (n, total) => setImportStatus(`正在讀取 PDF：第 ${n} / ${total} 頁`));
-      setImportStatus(S.imp.text.trim() ? `已讀取「${file.name}」` : '這個 PDF 裡讀不到文字（可能是掃描圖片），請改用複製貼上。');
+      const { pdfToTextWithStats } = await import('./pdf.js');
+      const { text, stats } = await pdfToTextWithStats(file, (n, total) => setImportStatus(`正在讀取 PDF：第 ${n} / ${total} 頁`));
+      S.imp.text = text;
+      if (!text.trim()) {
+        setImportStatus('這個 PDF 裡讀不到文字（可能是掃描圖片），請改用複製貼上。');
+      } else {
+        const notes = [];
+        if (stats.headerLines) notes.push(`已自動移除 ${stats.headerLines} 行頁首／頁尾`);
+        if (stats.restored) notes.push(`PDF 缺少 ${stats.restored} 個圓圈數字，已依序補回（建議請 ChatGPT 不要用 ①②）`);
+        if (stats.tofu) notes.push(`⚠ 有 ${stats.tofu} 個字元在 PDF 裡顯示不出來（方塊或問號），請檢查那幾個字`);
+        setImportStatus(`已讀取「${file.name}」，共 ${stats.pages} 頁${notes.length ? `。${notes.join('；')}` : ''}`);
+      }
     } else {
       S.imp.text = await file.text();
       setImportStatus(`已讀取「${file.name}」`);
@@ -866,8 +897,13 @@ function renderSettings() {
       </div>
     </div>
     <div class="panel">
-      <h2>危險區</h2>
-      <button class="btn danger" data-act="wipe">清除所有單字與進度</button>
+      <h2>測試與清除</h2>
+      <p class="muted small" style="margin-bottom:12px">測試完要正式開始時，可以用下面的功能清掉測試資料。每個按鈕都要按兩次才會執行。</p>
+      <div class="btn-row">
+        ${S.lastImport && S.lastImport.added.length + S.lastImport.updated.length ? '<button class="btn" data-act="undo-import">復原上一次匯入</button>' : ''}
+        <button class="btn" data-act="reset-progress">重設學習進度（保留單字）</button>
+        <button class="btn danger" data-act="wipe">清除所有單字與進度</button>
+      </div>
     </div>`);
   storageLine().then((t) => { const el = $('#storage-line'); if (el) el.textContent = t; });
 }
@@ -956,8 +992,11 @@ const actions = {
     render();
     toast('已刪除');
   },
-  'copy-prompt': async () => {
-    try { await navigator.clipboard.writeText(AI_PROMPT); toast('提示詞已複製，貼給 ChatGPT 後接上要學的單字'); }
+  'copy-prompt': async (el) => {
+    try {
+      await navigator.clipboard.writeText(el.dataset.kind === 'text' ? AI_PROMPT_TEXT : AI_PROMPT_PDF);
+      toast('提示詞已複製，貼給 ChatGPT 後，在最後接上要學的單字');
+    }
     catch { toast('複製失敗，請到「支援的格式」手動參考'); }
   },
   'load-sample': async () => {
@@ -991,10 +1030,34 @@ const actions = {
     await saveMeta('settings', S.settings);
   },
   export: exportBackup,
+  'undo-import': async (el) => {
+    const li = S.lastImport;
+    if (!li) return;
+    if (!armed(el, `再按一次，刪除這次新增的 ${li.added.length} 個字${li.updated.length ? `並還原 ${li.updated.length} 個更新` : ''}`)) return;
+    for (const id of li.added) await S.store.remove(id);
+    S.cards = S.cards.filter((c) => !li.added.includes(c.id));
+    if (li.updated.length) await saveCards(li.updated);
+    S.lastImport = null;
+    await saveMeta('lastImport', null);
+    toast('已復原上一次匯入');
+    render();
+  },
+  'reset-progress': async (el) => {
+    if (!armed(el, '再按一次，所有單字回到「待分級」')) return;
+    const reset = S.cards.map((c) => ({ ...c, stars: 0, status: 'new', step: 0, relearn: false, due: null, reps: 0, lapses: 0, lastReviewed: null }));
+    await saveCards(reset);
+    S.days = [];
+    S.newToday = { date: '', count: 0, bonus: 0 };
+    await saveMeta('days', S.days);
+    await saveMeta('newToday', S.newToday);
+    newState();
+    toast(`已重設 ${reset.length} 個單字的學習進度`);
+    render();
+  },
   wipe: async (el) => {
     if (!armed(el, '再按一次，確認清除全部資料（無法復原）')) return;
     await S.store.clear();
-    S.cards = []; S.days = []; S.settings = { ...DEFAULT_SETTINGS }; S.newToday = { date: '', count: 0, bonus: 0 };
+    S.cards = []; S.days = []; S.settings = { ...DEFAULT_SETTINGS }; S.newToday = { date: '', count: 0, bonus: 0 }; S.lastImport = null;
     toast('已清除');
     render();
   },
@@ -1053,6 +1116,7 @@ async function boot() {
     S.settings = { ...DEFAULT_SETTINGS, ...((await S.store.getMeta('settings')) || {}) };
     S.days = (await S.store.getMeta('days')) || [];
     S.newToday = (await S.store.getMeta('newToday')) || S.newToday;
+    S.lastImport = (await S.store.getMeta('lastImport')) || null;
   } catch {
     toast('讀取資料時發生問題');
   }

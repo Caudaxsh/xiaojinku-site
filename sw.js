@@ -1,5 +1,5 @@
 // Offline cache. Bump CACHE whenever any app file changes so phones pick up the update.
-const CACHE = 'xiaojinku-v3';
+const CACHE = 'xiaojinku-v4';
 const ASSETS = [
   './',
   'index.html',

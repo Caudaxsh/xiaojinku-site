@@ -161,6 +161,8 @@ body.studying .tabs { display: none; }
 .back-head .mini-speak { margin-left: auto; width: 42px; height: 42px; background: var(--ink); color: var(--paper); border: 0; }
 .meaning { font: 700 24px/1.4 var(--serif); margin: 16px 0 4px; color: var(--ink); }
 .meaning.long { font-size: 19px; line-height: 1.5; }
+.meaning-extra { margin-top: 10px; }
+.meaning-extra .bullets { margin: 0; }
 .meaning-list { display: grid; gap: 8px; margin: 10px 0 4px; }
 .meaning-list li { font: 700 18px/1.5 var(--serif); padding-left: 2px; }
 .meaning-more { font-size: 15px; line-height: 1.65; color: var(--slate); margin-top: 6px; }
