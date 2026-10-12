@@ -2,8 +2,10 @@ import { parseVocab, wordKey, AI_PROMPT_PDF, AI_PROMPT_TEXT } from './parser.js'
 import * as srs from './srs.js';
 import { createStore } from './store.js';
 import { say, unlockAudio, lookupIpa } from './audio.js';
+import { icon, hydrateIcons } from './icons.js';
 
-const APP_VERSION = '2.1.0';
+const APP_NAME = 'Cash Volcab';
+const APP_VERSION = '2.2.0';
 const DEFAULT_SETTINGS = { newPerDay: 20, autoPlay: true };
 
 const S = {
@@ -27,8 +29,8 @@ const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ESC[c]);
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const ICON_SPEAK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
-const ICON_X = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
+const ICON_SPEAK = icon('speaker', { size: 20 });
+const ICON_X = icon('close', { size: 18 });
 
 const starsHtml = (n) => `<span class="stars" aria-label="${n} 顆星">${'★'.repeat(n)}<span class="off">${'★'.repeat(Math.max(0, 3 - n))}</span></span>`;
 const cardById = (id) => S.cards.find((c) => c.id === id);
@@ -36,12 +38,12 @@ const cardById = (id) => S.cards.find((c) => c.id === id);
 /** Two-tap confirmation that works everywhere (no browser dialog). Returns true on the second tap. */
 function armed(el, text) {
   if (el.dataset.armed) return true;
-  const label = el.textContent;
+  const original = el.innerHTML;
   el.dataset.armed = '1';
   el.textContent = text;
   setTimeout(() => {
     if (!el.isConnected) return;
-    el.textContent = label;
+    el.innerHTML = original;
     delete el.dataset.armed;
   }, 4000);
   return false;
@@ -172,6 +174,13 @@ async function markDay() {
   }
 }
 
+/** 待分級 → tag, scheduled → reviewing, due today → due, finished → mastered. */
+function statusIcon(card) {
+  if (card.status === 'new') return 'tag';
+  if (card.status === 'mastered') return 'mastered';
+  return srs.isDue(card) ? 'due' : 'reviewing';
+}
+
 function dueLabel(card) {
   if (card.status === 'new') return '待分級';
   if (card.status === 'mastered') return card.stars === 1 ? '不需複習' : '已掌握';
@@ -212,18 +221,18 @@ function backSections(card) {
     const n = Math.max(card.zh.length, card.en.length);
     const items = Array.from({ length: n }, (_, i) => `
       <li><p class="zh">${esc(card.zh[i] || '')}</p>${card.en[i] ? `<p class="en">${esc(card.en[i])}</p>` : ''}</li>`).join('');
-    out.push({ id: 'zh', label: '例句翻譯', tone: 'ink', html: `<ol class="pairs">${items}</ol>` });
+    out.push({ id: 'zh', label: '例句翻譯', icon: 'translate', html: `<ol class="pairs">${items}</ol>` });
   }
   if (card.collocations.length) {
     const items = card.collocations.map((x) => rowHtml(x, `
       <li data-act="speak" data-kind="sentence" data-text="${esc(x.p)}"><b>${esc(x.p)}</b><span>${esc(x.zh)}</span></li>`)).join('');
-    out.push({ id: 'col', label: '常見搭配', tone: 'rust', note: '點一下可聽發音', html: `<ul class="rows">${items}</ul>` });
+    out.push({ id: 'col', label: '常見搭配', icon: 'tag', note: '點一下可聽發音', html: `<ul class="rows">${items}</ul>` });
   }
   if (card.compares.length) {
     const html = card.compares.map((c) => `
       ${c.title ? `<h4 class="cmp-title">${esc(c.title)}</h4>` : ''}
       <ul class="cmp">${c.items.map((x) => `<li class="${wordKey(x.p) === key ? 'self' : ''}"><b>${esc(x.p)}</b><span>${esc(x.zh)}</span></li>`).join('')}</ul>`).join('');
-    out.push({ id: 'cmp', label: '易混淆比較', tone: 'slate', html });
+    out.push({ id: 'cmp', label: '易混淆比較', icon: 'compare', html });
   }
   if (card.forms.length) {
     const items = card.forms.map((f) => {
@@ -231,31 +240,36 @@ function backSections(card) {
       const { head, pos } = splitPos(f.p);
       return `<li><b>${esc(head)}${pos ? `<span class="pos">${esc(pos)}</span>` : ''}</b><span>${esc(f.zh)}</span></li>`;
     }).join('');
-    out.push({ id: 'forms', label: '詞性變化', tone: 'olive', html: `<ul class="rows">${items}</ul>` });
+    out.push({ id: 'forms', label: '詞性變化', icon: 'forms', html: `<ul class="rows">${items}</ul>` });
   }
   if (card.memory || card.quick) {
     const [quickHead, ...quickRest] = (card.quick || '').split('\n');
     const quick = card.quick
       ? `<div class="quick"><small>最快記法</small><p>${esc(quickHead)}</p></div>${quickRest.length ? `<div class="quick-more">${textBlock(quickRest.join('\n'))}</div>` : ''}`
       : '';
-    out.push({ id: 'mem', label: '記憶方式', tone: 'gold', html: textBlock(card.memory || '') + quick });
+    out.push({ id: 'mem', label: '記憶方式', icon: 'root', html: textBlock(card.memory || '') + quick });
   }
   (card.extras || []).forEach((x, i) => {
-    out.push({ id: `extra${i}`, label: x.title, tone: 'slate', html: textBlock(x.text) });
+    out.push({ id: `extra${i}`, label: x.title, icon: 'tip', html: textBlock(x.text) });
   });
-  if (card.synonyms) out.push({ id: 'syn', label: '同義・反義', tone: 'slate', html: textBlock(card.synonyms, 'prose') });
-  if (card.notes) out.push({ id: 'notes', label: '文法・補充', tone: 'muted', html: textBlock(card.notes, 'prose') });
+  if (card.synonyms) out.push({ id: 'syn', label: '同義・反義', icon: 'compare', html: textBlock(card.synonyms, 'prose') });
+  if (card.notes) out.push({ id: 'notes', label: '文法・補充', icon: 'tip', html: textBlock(card.notes, 'prose') });
   return out;
 }
 
+const secHead = (iconName, label, note = '') =>
+  `<div class="sec-h">${icon(iconName, { size: 18 })}<h3>${label}</h3>${note ? `<small>${note}</small>` : ''}</div>`;
+
 const sectionsHtml = (secs, prefix = 'sec') => secs.map((s) => `
-  <section class="sec tone-${s.tone}" id="${prefix}-${s.id}">
-    <div class="sec-h"><h3>${s.label}</h3>${s.note ? `<small>${s.note}</small>` : ''}</div>
+  <section class="sec" id="${prefix}-${s.id}">
+    ${secHead(s.icon, s.label, s.note)}
     ${s.html}
   </section>`).join('');
 
+// The four main categories get the mosaic tiles; any other section keeps a plain tab.
+const MOSAIC = ['zh', 'col', 'forms', 'mem'];
 const sectionNav = (secs, prefix = 'sec') =>
-  `<nav class="sec-nav" aria-label="背面段落">${secs.map((s) => `<button class="tone-${s.tone}" data-act="jump" data-to="${prefix}-${s.id}">${s.label}</button>`).join('')}</nav>`;
+  `<nav class="sec-nav" aria-label="背面段落">${secs.map((s) => `<button class="${MOSAIC.includes(s.id) ? `mosaic t-${s.id}` : 'plain'}" data-act="jump" data-to="${prefix}-${s.id}">${icon(s.icon, { size: 15 })}${s.label}</button>`).join('')}</nav>`;
 
 /* ---------------------------------------------------------------- shell */
 
@@ -330,24 +344,24 @@ function renderToday() {
         </div>
       </div>`;
   } else {
-    main = `<button class="btn primary big" data-act="start">開始學習・${todayTotal} 張卡片</button>`;
+    main = `<button class="btn primary big on-dark" data-act="start">${icon('reviewing', { size: 20 })}開始學習・${todayTotal} 張卡片</button>`;
   }
 
   setView(`
     <div class="page-head hero">
-      <div><p class="eyebrow">${now.getMonth() + 1} 月 ${now.getDate()} 日</p><h1>小金庫單字</h1></div>
-      <div class="streak"><b>${srs.streak(S.days)}</b><span>連續天數</span></div>
+      <div><p class="eyebrow">${now.getMonth() + 1} 月 ${now.getDate()} 日</p><h1>${APP_NAME}</h1></div>
+      <div class="streak">${icon('trophy', { size: 22 })}<b>${srs.streak(S.days)}</b><span>連續天數</span></div>
     </div>
     <div class="tiles">
-      <div class="tile ${c.freshToday ? 'hot' : ''}"><div class="num">${c.freshToday}</div><div class="lbl">今日新字</div></div>
-      <div class="tile ${c.due ? 'hot' : ''}"><div class="num">${c.due}</div><div class="lbl">待複習</div></div>
-      <div class="tile"><div class="num">${c.mastered}</div><div class="lbl">已學完</div></div>
+      <div class="tile ${c.freshToday ? 'hot' : ''}">${icon('today', { size: 22 })}<div class="num">${c.freshToday}</div><div class="lbl">今日新字</div></div>
+      <div class="tile ${c.due ? 'hot' : ''}">${icon('due', { size: 22 })}<div class="num">${c.due}</div><div class="lbl">待複習</div></div>
+      <div class="tile">${icon('mastered', { size: 22 })}<div class="num">${c.mastered}</div><div class="lbl">已學完</div></div>
     </div>
     ${main}
     ${S.lastImport && S.lastImport.date === srs.todayStr() && S.lastImport.added.length + S.lastImport.updated.length ? `
     <div class="panel note banner" style="margin-top:12px">
       <span>剛匯入 ${S.lastImport.added.length + S.lastImport.updated.length} 個單字（新增 ${S.lastImport.added.length}、更新 ${S.lastImport.updated.length}）。匯入錯了可以復原。</span>
-      <button data-act="undo-import">復原這次匯入</button>
+      <button class="ic-label" data-act="undo-import">${icon('undo', { size: 16 })}復原這次匯入</button>
     </div>` : ''}
     ${showBanner ? `
     <div class="panel note banner" style="margin-top:12px">
@@ -355,7 +369,7 @@ function renderToday() {
       <button data-act="dismiss-banner">知道了</button>
     </div>` : ''}
     <div class="panel" style="margin-top:12px">
-      <h2>星級複習規則</h2>
+      <h2 class="ic-label">${icon('difficulty', { size: 18 })}星級複習規則</h2>
       ${RULES}
     </div>`);
 }
@@ -564,12 +578,12 @@ function renderDone() {
   const reviewed = r.again + r.good + r.easy;
   const c = counts();
   const summary = st.practice
-    ? `<div class="sum"><div><b>${r.seen}</b>張練習</div></div>`
-    : `<div class="sum"><div><b>${newCount}</b>新字分級</div><div><b>${reviewed}</b>複習</div><div><b>${r.again}</b>忘記</div></div>`;
+    ? `<div class="sum">${icon('stats', { size: 22 })}<div><b>${r.seen}</b>張練習</div></div>`
+    : `<div class="sum">${icon('stats', { size: 22 })}<div><b>${newCount}</b>新字分級</div><div><b>${reviewed}</b>複習</div><div><b>${r.again}</b>忘記</div></div>`;
   setView(`
     <section class="study">
       <div class="done">
-        <div class="mark">✓</div>
+        <div class="mark">${icon('trophy', { size: 40 })}</div>
         <h1>${st.practice ? '練習完成' : '今天完成了'}</h1>
         ${summary}
         ${newCount ? `<p class="muted small">${starsHtml(3)} ${r.newRated[3]}　${starsHtml(2)} ${r.newRated[2]}　${starsHtml(1)} ${r.newRated[1]}</p>` : ''}
@@ -613,20 +627,20 @@ function filteredCards() {
 
 function listHtml() {
   const list = filteredCards();
-  const practice = list.length ? `<button class="btn sm practice" data-act="practice">練習這 ${list.length} 個字（不影響排程）</button>` : '';
+  const practice = list.length ? `<button class="btn sm practice" data-act="practice">${icon('reviewing', { size: 16 })}練習這 ${list.length} 個字（不影響排程）</button>` : '';
   if (!list.length) return '<div class="empty"><p>沒有符合的單字</p></div>';
   return `${practice}<div class="list">${list.map((c) => `
     <button class="item" data-act="open-card" data-id="${esc(c.id)}">
       <span class="w">${esc(c.word)}</span>
       <span class="m">${esc(c.meaning || c.zh[0] || '')}</span>
-      <span class="meta">${c.status === 'new' ? '<span class="chip">NEW</span>' : starsHtml(c.stars)}<span>${dueLabel(c)}</span></span>
+      <span class="meta">${c.status === 'new' ? '<span class="chip">NEW</span>' : starsHtml(c.stars)}<span class="ic-label state">${icon(statusIcon(c), { size: 14 })}${dueLabel(c)}</span></span>
     </button>`).join('')}</div>`;
 }
 
 function renderLibrary() {
   setView(`
     <div class="page-head"><h1>單字庫</h1><p class="sub">共 ${S.cards.length} 個單字</p></div>
-    <input id="lib-q" class="input" type="search" placeholder="搜尋單字或中文意思" value="${esc(S.lib.q)}" autocomplete="off" autocapitalize="none">
+    <div class="search">${icon('search', { size: 18 })}<input id="lib-q" class="input" type="search" placeholder="搜尋單字或中文意思" value="${esc(S.lib.q)}" autocomplete="off" autocapitalize="none"></div>
     <div class="filters" id="lib-filters">
       ${FILTERS.map(([k, label]) => `<button data-act="filter" data-filter="${k}" class="${S.lib.filter === k ? 'on' : ''}">${label} ${S.cards.filter((c) => matchFilter(c, k)).length}</button>`).join('')}
     </div>
@@ -656,17 +670,17 @@ function openCardSheet(id) {
       <div><div class="w">${esc(c.word)}</div><p class="ipa">${esc(c.ipa)}</p></div>
       ${speakBtn(c.word, 'word')}
     </div>
-    <p class="muted small" style="margin-top:6px">${c.status === 'new' ? '<span class="chip">NEW</span> ' : `${starsHtml(c.stars)}・`}${dueLabel(c)}${c.lapses ? `・忘記 ${c.lapses} 次` : ''}</p>
+    <p class="muted small ic-label sheet-status" style="margin-top:6px">${c.status === 'new' ? '<span class="chip">NEW</span> ' : `${starsHtml(c.stars)}・`}${icon(statusIcon(c), { size: 15 })}${dueLabel(c)}${c.lapses ? `・忘記 ${c.lapses} 次` : ''}</p>
     ${meaningHtml(c.meaning, c.meaningMore)}
-    ${c.en.length ? `<section class="sec tone-ink"><div class="sec-h"><h3>英文例句</h3></div><ol class="pairs">${c.en.map((s) => `<li><p class="zh">${highlight(s, c.word)}</p></li>`).join('')}</ol></section>` : ''}
+    ${c.en.length ? `<section class="sec">${secHead('example', '英文例句')}<ol class="pairs">${c.en.map((s) => `<li><p class="zh">${highlight(s, c.word)}</p></li>`).join('')}</ol></section>` : ''}
     ${sectionsHtml(secs, 'sheet')}
-    <section class="sec tone-gold"><div class="sec-h"><h3>重要性</h3></div>
+    <section class="sec">${secHead('difficulty', '重要性')}
       <div class="adjust" style="justify-content:flex-start;margin:0">
         ${[3, 2, 1].map((n) => `<button class="${c.stars === n ? 'on' : ''}" data-act="sheet-stars" data-id="${esc(c.id)}" data-stars="${n}">${'★'.repeat(n)}</button>`).join('')}
       </div>
       ${c.status === 'new' ? '<p class="muted small" style="margin-top:8px">待分級的單字，會在第一次學習時由你決定星級。</p>' : ''}
     </section>
-    <div class="btn-row" style="margin-top:22px"><button class="btn danger sm" data-act="delete-card" data-id="${esc(c.id)}">刪除這個單字</button><button class="btn sm" data-act="close-sheet">關閉</button></div>`);
+    <div class="btn-row" style="margin-top:22px"><button class="btn danger sm" data-act="delete-card" data-id="${esc(c.id)}">${icon('trash', { size: 16 })}刪除這個單字</button><button class="btn sm" data-act="close-sheet">關閉</button></div>`);
 }
 
 /* --------------------------------------------------------------- import */
@@ -712,8 +726,8 @@ function renderImport() {
         <li><span>回到這裡上傳或貼上，看預覽確認每個字都切對了，按<b>匯入</b>。</span></li>
       </ol>
       <div class="btn-row" style="margin-top:14px">
-        <button class="btn primary" data-act="copy-prompt" data-kind="pdf">複製提示詞（PDF 版）</button>
-        <button class="btn" data-act="copy-prompt" data-kind="text">複製提示詞（貼上版）</button>
+        <button class="btn primary on-dark" data-act="copy-prompt" data-kind="pdf">${icon('copy', { size: 18 })}複製提示詞（PDF 版）</button>
+        <button class="btn" data-act="copy-prompt" data-kind="text">${icon('copy', { size: 18 })}複製提示詞（貼上版）</button>
       </div>
       <div class="btn-row" style="margin-top:8px">
         <button class="btn sm" data-act="load-sample">載入範例</button>
@@ -721,6 +735,7 @@ function renderImport() {
     </div>
     <div class="panel">
       <label class="file-drop" for="imp-file">
+        ${icon('fileUp', { size: 30 })}
         <b>選擇 PDF 或文字檔</b>
         <span>支援 .pdf、.txt、.md，可以一次 40–50 個單字</span>
       </label>
@@ -729,8 +744,8 @@ function renderImport() {
       <div class="or">或直接貼上</div>
       <textarea id="imp-text" class="textarea" placeholder="把 ChatGPT 的整段回覆貼在這裡" spellcheck="false" autocapitalize="none" autocorrect="off">${esc(S.imp.text)}</textarea>
       <div class="btn-row" style="margin-top:10px">
-        <button class="btn sm" data-act="paste">從剪貼簿貼上</button>
-        <button class="btn sm" data-act="imp-clear">清空</button>
+        <button class="btn sm" data-act="paste">${icon('paste', { size: 16 })}從剪貼簿貼上</button>
+        <button class="btn sm" data-act="imp-clear">${icon('eraser', { size: 16 })}清空</button>
       </div>
       <div id="imp-preview"></div>
     </div>
@@ -867,7 +882,7 @@ async function storageLine() {
 
 function renderSettings() {
   setView(`
-    <div class="page-head"><h1>設定</h1><p class="sub">小金庫單字 v${APP_VERSION}</p></div>
+    <div class="page-head"><h1>設定</h1><p class="sub">${APP_NAME} v${APP_VERSION}</p></div>
     <div class="panel">
       <div class="set-row">
         <div><b>每天新字上限</b><p>匯入很多字時，每天最多出幾個新字</p></div>
@@ -879,7 +894,7 @@ function renderSettings() {
       </div>
     </div>
     <div class="panel">
-      <h2>星級複習規則</h2>
+      <h2 class="ic-label">${icon('difficulty', { size: 18 })}星級複習規則</h2>
       ${RULES}
     </div>
     <div class="panel">
@@ -891,8 +906,8 @@ function renderSettings() {
       </ul>
       <p class="muted small" style="margin-top:10px">儲存方式：${esc(S.store.kind)}・${S.cards.length} 個單字・<span id="storage-line"></span></p>
       <div class="btn-row" style="margin-top:12px">
-        <button class="btn" data-act="export">匯出備份</button>
-        <label class="btn" for="restore-file">還原備份</label>
+        <button class="btn" data-act="export">${icon('download', { size: 18 })}匯出備份</button>
+        <label class="btn" for="restore-file">${icon('upload', { size: 18 })}還原備份</label>
         <input id="restore-file" type="file" accept="application/json,.json" hidden>
       </div>
     </div>
@@ -900,9 +915,9 @@ function renderSettings() {
       <h2>測試與清除</h2>
       <p class="muted small" style="margin-bottom:12px">測試完要正式開始時，可以用下面的功能清掉測試資料。每個按鈕都要按兩次才會執行。</p>
       <div class="btn-row">
-        ${S.lastImport && S.lastImport.added.length + S.lastImport.updated.length ? '<button class="btn" data-act="undo-import">復原上一次匯入</button>' : ''}
-        <button class="btn" data-act="reset-progress">重設學習進度（保留單字）</button>
-        <button class="btn danger" data-act="wipe">清除所有單字與進度</button>
+        ${S.lastImport && S.lastImport.added.length + S.lastImport.updated.length ? `<button class="btn" data-act="undo-import">${icon('undo', { size: 18 })}復原上一次匯入</button>` : ''}
+        <button class="btn" data-act="reset-progress">${icon('reviewing', { size: 18 })}重設學習進度（保留單字）</button>
+        <button class="btn danger" data-act="wipe">${icon('trash', { size: 18 })}清除所有單字與進度</button>
       </div>
     </div>`);
   storageLine().then((t) => { const el = $('#storage-line'); if (el) el.textContent = t; });
@@ -1121,6 +1136,7 @@ async function boot() {
     toast('讀取資料時發生問題');
   }
   newState();
+  hydrateIcons();
   render();
   navigator.storage?.persist?.().catch(() => {});
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

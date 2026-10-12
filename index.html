@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>小金庫單字</title>
+  <title>Cash Volcab</title>
   <meta name="description" content="個人專屬的英文單字複習 App：三級星等、間隔複習、離線可用。">
   <meta name="theme-color" content="#F3F2ED">
   <meta name="color-scheme" content="light">
@@ -11,7 +11,7 @@
   <meta name="referrer" content="no-referrer">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="小金庫">
+  <meta name="apple-mobile-web-app-title" content="Cash Volcab">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
@@ -21,22 +21,10 @@
 <body>
   <main id="view" aria-live="polite"></main>
   <nav id="tabs" class="tabs" aria-label="主選單">
-    <button data-tab="today" class="tab">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="M8 8.5h8M8 12.5h5"/><path d="M14.5 16.5l1.5 1.5 3-3"/></svg>
-      <span>今日</span>
-    </button>
-    <button data-tab="library" class="tab">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4.5h5a2 2 0 0 1 2 2V20a1.5 1.5 0 0 0-1.5-1.5H5z"/><path d="M19 4.5h-5a2 2 0 0 0-2 2V20a1.5 1.5 0 0 1 1.5-1.5H19z"/></svg>
-      <span>單字庫</span>
-    </button>
-    <button data-tab="import" class="tab">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M5 17.5v1A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-1"/></svg>
-      <span>匯入</span>
-    </button>
-    <button data-tab="settings" class="tab">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
-      <span>設定</span>
-    </button>
+    <button data-tab="today" class="tab"><span data-icon="today" data-size="22"></span><span>今日</span></button>
+    <button data-tab="library" class="tab"><span data-icon="book" data-size="22"></span><span>單字庫</span></button>
+    <button data-tab="import" class="tab"><span data-icon="download" data-size="22"></span><span>匯入</span></button>
+    <button data-tab="settings" class="tab"><span data-icon="settings" data-size="22"></span><span>設定</span></button>
   </nav>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <div id="sheet" class="sheet" hidden></div>

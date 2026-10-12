@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Cash Volcab Icons</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body { background: var(--ic-bg); color: var(--ic-line); }
+    .wrap { max-width: 920px; margin: 0 auto; padding: calc(var(--safe-top) + 28px) 16px 48px; }
+    .head { text-align: center; margin-bottom: 26px; }
+    .head h1 { font: 600 clamp(28px, 7vw, 40px)/1.15 var(--serif); letter-spacing: 0.01em; }
+    .head p { color: #4f7f78; letter-spacing: 0.24em; margin-top: 8px; font-size: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); border-top: 1px solid rgba(40, 103, 95, 0.12); border-left: 1px solid rgba(40, 103, 95, 0.12); }
+    .cell { display: grid; justify-items: center; gap: 10px; padding: 22px 8px 16px; border-right: 1px solid rgba(40, 103, 95, 0.12); border-bottom: 1px solid rgba(40, 103, 95, 0.12); }
+    .cell span { color: #1f2a2a; font-size: 14px; }
+    .cell code { color: #6b8a85; font-size: 11px; }
+    h2 { font: 600 15px var(--sans); letter-spacing: 0.12em; margin: 34px 0 12px; }
+    .row { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-end; }
+    .row figure { margin: 0; display: grid; justify-items: center; gap: 6px; font-size: 12px; color: #4f7f78; }
+    .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+    .swatches div { display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 6px; background: #fff; border: 1px solid rgba(40, 103, 95, 0.15); border-radius: 8px; font: 12px ui-monospace, Menlo, monospace; }
+    .swatches i { width: 22px; height: 22px; border-radius: 5px; border: 1px solid rgba(0, 0, 0, 0.06); }
+    .chips { display: flex; flex-wrap: wrap; gap: 10px; padding: 6px 4px 8px; }
+    .chips button { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; font-size: 13px; }
+    .dark { display: inline-flex; gap: 14px; padding: 12px 16px; border-radius: 14px; background: var(--ink); }
+    .note { font-size: 13px; color: #4f7f78; margin-top: 8px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="head">
+      <h1>Cash Volcab Icon System</h1>
+      <p>線性極簡 × 柔和自然色</p>
+    </header>
+
+    <div class="grid" id="vocab"></div>
+
+    <h2>一般功能（Lucide，統一描邊與顏色）</h2>
+    <div class="grid" id="ui"></div>
+
+    <h2>尺寸</h2>
+    <div class="row" id="sizes"></div>
+    <p class="note">規格：24×24 格線、描邊 1.75、圓潤線端與轉角；線條深墨綠，色彩只做局部點綴。</p>
+
+    <h2>色彩</h2>
+    <div class="swatches">
+      <div><i style="background:#28675F"></i>#28675F 線條</div>
+      <div><i style="background:#83CBB8"></i>#83CBB8 薄荷綠</div>
+      <div><i style="background:#F4B29A"></i>#F4B29A 珊瑚粉</div>
+      <div><i style="background:#E9DCA8"></i>#E9DCA8 奶油黃</div>
+      <div><i style="background:#F5F8F4"></i>#F5F8F4 背景</div>
+    </div>
+
+    <h2>卡片背面頂端的四個分類（唯一使用方塊拼貼的地方）</h2>
+    <div class="chips" id="mosaic"></div>
+
+    <h2>深色按鈕上</h2>
+    <div class="dark" id="dark"></div>
+  </main>
+  <script type="module">
+    import { icon, ICON_CATALOG, UI_CATALOG } from './js/icons.js';
+    const cell = ([name, label]) => `<div class="cell">${icon(name, { size: 44 })}<span>${label}</span><code>${name}</code></div>`;
+    document.getElementById('vocab').innerHTML = ICON_CATALOG.map(cell).join('');
+    document.getElementById('ui').innerHTML = UI_CATALOG.map(cell).join('');
+    document.getElementById('sizes').innerHTML = [16, 20, 24, 32, 48].map((s) => `<figure>${icon('translate', { size: s })}<figcaption>${s}px</figcaption></figure>`).join('');
+    document.getElementById('mosaic').innerHTML = [
+      ['zh', 'translate', '例句翻譯'], ['col', 'tag', '常見搭配'], ['forms', 'forms', '詞性變化'], ['mem', 'root', '記憶方式'],
+    ].map(([t, n, l]) => `<button class="mosaic t-${t}">${icon(n, { size: 16 })}${l}</button>`).join('');
+    document.getElementById('dark').innerHTML = ['speaker', 'reviewing', 'copy', 'trophy'].map((n) => `<span class="on-dark">${icon(n, { size: 24 })}</span>`).join('');
+  </script>
+</body>
+</html>

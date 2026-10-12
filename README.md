@@ -1,7 +1,13 @@
-# 小金庫單字
+# Cash Volcab
 
 個人專屬的英文單字複習網站（PWA）。純 HTML / CSS / JavaScript，沒有建置步驟。
 iPhone 用 Safari「加入主畫面」後，就能像 App 一樣全螢幕、離線使用，不需要上架或審核。
+
+## 圖示系統
+
+線性圖示，24×24 格線、描邊 1.75、圓潤線端；線條深墨綠 `#28675F`，點綴薄荷綠 `#83CBB8`、珊瑚粉 `#F4B29A`、奶油黃 `#E9DCA8`。
+學習相關的圖示依設計參考圖繪製，一般功能改自 [Lucide](https://lucide.dev)（ISC）。用法：`icon('translate', { size: 20 })`。
+完整一覽打開 `icons.html`。方塊拼貼只用在卡片背面頂端的四個分類標籤。
 
 ## 卡片
 
@@ -82,5 +88,7 @@ node --test tests/parser.test.mjs tests/srs.test.mjs
 | `js/srs.js` | 星級複習排程 |
 | `js/store.js` | 本機儲存（IndexedDB，備援 localStorage） |
 | `js/app.js` | 介面與互動 |
+| `js/icons.js` | 圖示系統（統一規格的 SVG 圖示元件） |
+| `icons.html` | 圖示展示頁，所有圖示、尺寸、色彩一覽 |
 | `docs/gpt-pdf-rules.md` | 給 GPT 的 PDF 規則（自動產生） |
 | `vendor/pdfjs/` | Mozilla pdf.js 6.3.289（Apache-2.0） |

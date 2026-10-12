@@ -1,5 +1,5 @@
 // Offline cache. Bump CACHE whenever any app file changes so phones pick up the update.
-const CACHE = 'xiaojinku-v4';
+const CACHE = 'cash-volcab-v5';
 const ASSETS = [
   './',
   'index.html',
@@ -11,6 +11,7 @@ const ASSETS = [
   'js/store.js',
   'js/audio.js',
   'js/pdf.js',
+  'js/icons.js',
   'icons/icon.svg',
   'icons/icon-180.png',
   'icons/icon-192.png',
