@@ -1,5 +1,5 @@
 // Offline cache. Bump CACHE whenever any app file changes so phones pick up the update.
-const CACHE = 'cash-volcab-v11';
+const CACHE = 'cash-volcab-v12';
 const ASSETS = [
   './',
   'index.html',

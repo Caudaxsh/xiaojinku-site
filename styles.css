@@ -30,7 +30,7 @@
 html { background: var(--paper-3); }
 body {
   margin: 0; min-height: 100vh; min-height: 100dvh;
-  background: var(--paper-3); color: var(--ink);
+  background: transparent; color: var(--ink); /* html paints the page colour, so the pet layer at z-index -1 can show through */
   font: 16px/1.6 var(--sans); -webkit-font-smoothing: antialiased;
 }
 button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; }
@@ -389,5 +389,5 @@ body.studying .toast { bottom: calc(130px + var(--safe-bottom)); }
 
 /* Boxes sit above the pet's layer while it peeks from behind one (the layer drops to z-index 0). */
 .tile, #view > .panel { position: relative; z-index: 1; }
-.pet-layer.behind { z-index: 0; }
+.pet-layer.behind { z-index: -1; } /* below the page's content: boxes and letters cover the pet's lower part */
 .pet-layer.behind .pet-shadow { display: none; }

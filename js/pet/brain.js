@@ -6,8 +6,8 @@
 
 export const REST_MS = [2200, 5200];
 export const MOVES = ['walk', 'run'];
-const COOLDOWN = { jump: 6000, run: 5000, think: 14000, sleep: 45000, peek: 30000, wave: 60000, cheer: 20000, encourage: 30000 };
-const WEIGHTS = { walk: 24, run: 15, idle: 8, jump: 13, think: 12, sleep: 11, peek: 9, sit: 8, wave: 3 };
+const COOLDOWN = { jump: 6000, run: 5000, think: 14000, sleep: 45000, peek: 30000, peek_title: 30000, climb: 25000, wave: 60000, cheer: 20000, encourage: 30000 };
+const WEIGHTS = { walk: 24, run: 15, idle: 8, jump: 13, think: 12, sleep: 11, peek: 9, peek_title: 8, climb: 11, sit: 8, wave: 3 };
 export const TAP_BAG = ['wave', 'jump', 'card', 'think', 'run'];
 const MIN_SLEEP_SPAN = 56; // lying down needs room on the platform
 
@@ -48,7 +48,9 @@ export function createBrain({ rng = Math.random, now = () => Date.now() } = {}) 
       const span = ctx.max - ctx.min;
       const options = Object.entries(WEIGHTS).filter(([type]) => type !== last && ready(type) && can(type)
         && (type !== 'sleep' || span >= MIN_SLEEP_SPAN)
-        && (type !== 'peek' || ctx.canPeek)); // only behind boxes that have a solid face
+        && (type !== 'peek' || ctx.canPeek)             // only behind boxes that have a solid face
+        && (type !== 'peek_title' || ctx.canPeekTitle)  // only from behind the title letters
+        && (type !== 'climb' || ctx.canClimb));         // only where a box stands right above the pet
       if (!options.length) return { type: mark('idle') };
       let roll = rng() * options.reduce((n, [, w]) => n + w, 0);
       let pick = options[options.length - 1][0];

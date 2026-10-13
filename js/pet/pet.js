@@ -30,17 +30,19 @@ export function createPet() {
     if (!layer) return [];
     const base = layer.getBoundingClientRect();
     return getPlatforms()
-      .map((p) => ({ key: p.key, left: p.left - base.left, right: p.right - base.left, top: p.top - base.top }))
+      .map((p) => ({ key: p.key, left: p.left - base.left, right: p.right - base.left, top: p.top - base.top, bottom: p.bottom == null ? null : p.bottom - base.top, avoidLeft: p.avoidLeft == null ? null : p.avoidLeft - base.left }))
       .filter((p) => p.right - p.left >= sprite.pw * 0.6);
   }
 
   /** Sprite left edge for a feet position (fraction 0..1 along the platform). */
+  /** Leftmost feet position on a platform. On the title it stays right of the date printed above it. */
+  const lowFeet = (p) => (p.avoidLeft == null ? p.left + EDGE : Math.max(p.left + EDGE, p.avoidLeft + 24));
   function xOn(p, f) {
-    const lo = p.left + EDGE; const hi = p.right - EDGE;
+    const lo = Math.min(lowFeet(p), p.right - EDGE); const hi = p.right - EDGE;
     return lo + (hi - lo) * Math.max(0, Math.min(1, f)) - sprite.pw / 2;
   }
   const feetX = () => sprite.x + sprite.pw / 2;
-  const fracOn = (p) => (feetX() - p.left - EDGE) / Math.max(1, p.right - p.left - 2 * EDGE);
+  const fracOn = (p) => (feetX() - lowFeet(p)) / Math.max(1, p.right - EDGE - lowFeet(p));
 
   function place() {
     platforms = measure();
@@ -83,7 +85,10 @@ export function createPet() {
     platforms = measure();
     const p = platforms[on];
     if (!p) return rest();
-    const a = brain.next({ x: feetX(), min: p.left + EDGE, max: p.right - EDGE, can, others: visiblePlatforms(), canPeek: /^(tile|panel)/.test(p.key) });
+    const a = brain.next({
+      x: feetX(), min: lowFeet(p), max: p.right - EDGE, can, others: visiblePlatforms(),
+      canPeek: /^(tile|panel)/.test(p.key), canPeekTitle: p.key === 'title' && p.right - EDGE - lowFeet(p) > 30, canClimb: climbPlans().length > 0,
+    });
     perform(a);
   }
 
@@ -120,30 +125,77 @@ export function createPet() {
     return true;
   }
 
+  /** Frames of a peek have their cut line at the bottom row: keep it this far behind the edge. */
+  const PEEK_BEHIND = 1;
+
   /**
-   * Rise from behind the top edge of a box, look around, sink back. The box is in front of the pet
-   * (the layer is lowered while this runs), so it hides the body: nothing needs to be drawn for it.
+   * Rise from behind the top edge of a box (or behind the title letters), look around, sink back.
+   * While this runs the pet layer sits BELOW the page content (z-index -1), so the box or the letters
+   * cover the bottom of the frames: nothing about the wall has to be drawn.
    */
-  async function peek(t) {
+  async function peek(t, clip) {
     const p = platforms[on];
     const x = xOn(p, 0.15 + Math.random() * 0.7);
-    const hidden = sprite.ph * 0.95; // feet this far below the edge = fully hidden
-    const shown = Math.round(sprite.ph * 0.13); // chin and hands just above the edge
-    sprite.moveTo(feetX() - sprite.pw / 2, 0, p.top); // stand still where it is for a frame
+    const hidden = sprite.ph; // feet this far below the edge = fully hidden
+    const stop = () => layer.classList.remove('behind');
+    sprite.moveTo(feetX() - sprite.pw / 2, 0, p.top);
     layer.classList.add('behind');
     sprite.moveTo(x, 0, p.top + hidden);
-    sprite.play('peek', { flip: Math.random() < 0.5 });
+    sprite.play(clip, { flip: Math.random() < 0.5 });
     void sprite.el.offsetWidth; // commit the hidden position before animating
-    sprite.moveTo(x, 520, p.top + shown);
-    if (!(await wait(520 + 700, t))) { layer.classList.remove('behind'); return; }
-    sprite.play('peek', { flip: !sprite.flip });          // glance the other way
-    if (!(await wait(1100, t))) { layer.classList.remove('behind'); return; }
-    sprite.play('peek', { flip: !sprite.flip });
-    if (!(await wait(900, t))) { layer.classList.remove('behind'); return; }
+    sprite.moveTo(x, 520, p.top + PEEK_BEHIND);
+    if (!(await wait(520 + 1900, t))) return stop();   // the clip's frames play: look, glance, blink, duck
     sprite.moveTo(x, 420, p.top + hidden);
-    if (!(await wait(440, t))) { layer.classList.remove('behind'); return; }
-    layer.classList.remove('behind');
+    if (!(await wait(440, t))) return stop();
+    stop();
     sprite.moveTo(x, 0, p.top); // pops up on top of the same box, standing
+    remember();
+    rest();
+  }
+
+  /**
+   * Places the pet could climb: a box standing right above the platform the pet is on (the panel
+   * under the tiles), from the gap beside it. The frames face the wall on their right, so climbing a
+   * box's LEFT edge uses them as drawn and its RIGHT edge uses the mirror image. The body must stay on
+   * screen and must not cover the neighbouring box's text, so narrow phones and outer edges are skipped.
+   */
+  const WALL_AT = 107 / 112; // where the hands touch the wall, as a fraction of the frame width
+  function climbPlans() {
+    const here = platforms[on];
+    if (!sprite || !layer || !here || !can('climb') || !can('climb_over')) return [];
+    const view = layer.getBoundingClientRect();
+    const vis = new Set(visiblePlatforms());
+    const out = [];
+    platforms.forEach((T, i) => {
+      if (!/^tile/.test(T.key) || T.bottom == null || !vis.has(i)) return;
+      if (here.top < T.bottom - 2 || here.top - T.bottom > 40) return;
+      if (T.right - T.left < 100) return;
+      const left = T.left - sprite.pw * WALL_AT;
+      const right = T.right - sprite.pw * (1 - WALL_AT);
+      if (view.left + left >= 2) out.push({ to: i, side: 'left', x: left });
+      if (view.left + right + sprite.pw <= innerWidth - 2) out.push({ to: i, side: 'right', x: right });
+    });
+    return out;
+  }
+
+  /** Walk to the gap, climb the side of the box, pull over the top edge and stand up there. */
+  async function climb(t, plan) {
+    const from = platforms[on]; const T = platforms[plan.to];
+    if (!from || !T) return;
+    const flip = plan.side === 'right';
+    if (!(await walkTo(plan.x, t, 'walk'))) return;
+    sprite.moveTo(plan.x, 0, from.top);
+    sprite.play('climb', { flip });
+    void sprite.el.offsetWidth;
+    const reach = T.top + sprite.ph * 0.45; // feet this far below the edge when the hands reach it
+    const ms = Math.max(600, ((from.top - reach) / 52) * 1000);
+    sprite.moveTo(plan.x, ms, reach);
+    if (!(await wait(ms, t))) return;
+    sprite.play('climb_over', { flip });
+    sprite.moveTo(plan.x, 320, T.top + 3);
+    if (!(await wait(sprite.duration('climb_over') + 120, t))) return;
+    on = plan.to;
+    sprite.moveTo(xOn(T, plan.side === 'left' ? 0.1 : 0.9), 0, T.top);
     remember();
     rest();
   }
@@ -171,9 +223,12 @@ export function createPet() {
       sprite.play('jump', { onDone: done });
       return;
     }
-    if (a.type === 'peek' && can('peek') && /^(tile|panel)/.test(platforms[on]?.key || '')) {
-      await peek(t);
-      return;
+    if (a.type === 'peek' && can('peek') && /^(tile|panel)/.test(platforms[on]?.key || '')) { await peek(t, 'peek'); return; }
+    if (a.type === 'peek_title' && can('peek_title') && platforms[on]?.key === 'title') { await peek(t, 'peek_title'); return; }
+    if (a.type === 'climb') {
+      const plans = a.plan ? [a.plan] : climbPlans();
+      if (plans.length) { await climb(t, plans[Math.floor(Math.random() * plans.length)]); return; }
+      return done();
     }
     if (a.type === 'card' && can('card')) {
       sprite.play('card');
@@ -264,6 +319,8 @@ export function createPet() {
     },
 
     get sprite() { return sprite; },
+    /** For tests and the preview page only. */
+    debug: { run: (a) => perform(a), platforms: () => platforms, plans: () => climbPlans(), go: (key) => { const i = platforms.findIndex((p) => p.key === key); if (i >= 0) { on = i; sprite.moveTo(xOn(platforms[i], 0.5), 0, platforms[i].top); homeKey = key; } } },
   });
 
   return pet;

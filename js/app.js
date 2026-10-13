@@ -25,6 +25,7 @@ const S = {
 };
 
 const pet = createPet();
+if (location.search.includes('petdebug')) window.__pet = pet;
 const $ = (sel, root = document) => root.querySelector(sel);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -399,9 +400,9 @@ function todayPlatforms() {
     const r = range.getClientRects()[0];
     const size = parseFloat(getComputedStyle(title).fontSize);
     // the line box is taller than the letters: stand on the cap height, not on the leading
-    if (r) out.push({ key: 'title', left: r.left, right: r.right, top: r.top + (r.height - size) / 2 + size * 0.17 });
+    if (r) out.push({ key: 'title', avoidLeft: $('.eyebrow')?.getBoundingClientRect().right ?? null, bottom: r.bottom, left: r.left, right: r.right, top: r.top + (r.height - size) / 2 + size * 0.17 });
   }
-  const add = (el, key) => { if (!el) return; const r = el.getBoundingClientRect(); if (r.width) out.push({ key, left: r.left, right: r.right, top: r.top }); };
+  const add = (el, key) => { if (!el) return; const r = el.getBoundingClientRect(); if (r.width) out.push({ key, left: r.left, right: r.right, top: r.top, bottom: r.bottom }); };
   add($('.streak'), 'streak');
   document.querySelectorAll('.tile').forEach((el, i) => add(el, `tile${i}`));
   add($('[data-act="start"]'), 'start');

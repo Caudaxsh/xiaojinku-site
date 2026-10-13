@@ -114,3 +114,15 @@ test('peeking only happens on a box that can hide the pet, and has a cooldown', 
   assert.ok(times.length > 3, `peeks: ${times.length}`);
   times.slice(1).forEach((x, i) => assert.ok(x - times[i] >= 30000));
 });
+
+test('title peek and climbing only happen where the page allows them', () => {
+  let t = 1e9;
+  const brain = createBrain({ rng: seeded(41), now: () => (t += 4000) });
+  for (let i = 0; i < 300; i++) {
+    const a = brain.next(ctx({ canPeek: false, canPeekTitle: false, canClimb: false })).type;
+    assert.ok(!['peek', 'peek_title', 'climb'].includes(a), a);
+  }
+  const seen = new Set();
+  for (let i = 0; i < 600; i++) seen.add(brain.next(ctx({ canPeek: true, canPeekTitle: true, canClimb: true })).type);
+  for (const k of ['peek', 'peek_title', 'climb']) assert.ok(seen.has(k), `${k} never chosen: ${[...seen]}`);
+});
