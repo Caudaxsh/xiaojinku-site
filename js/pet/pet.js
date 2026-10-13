@@ -6,7 +6,7 @@ import { Sprite } from './sprite.js';
 import { createBrain } from './brain.js';
 import { loadPack } from './pack.js';
 
-const SPEED = 34; // px per second while walking
+const SPEED = { walk: 34, run: 96 }; // px per second
 const EDGE = 10; // keep the feet this far inside a platform's ends
 const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -83,18 +83,16 @@ export function createPet() {
     platforms = measure();
     const p = platforms[on];
     if (!p) return rest();
-    const a = brain.next({
-      idleFor: Date.now() - lastTouch, x: feetX(), min: p.left + EDGE, max: p.right - EDGE, can,
-      others: visiblePlatforms(),
-    });
+    const a = brain.next({ x: feetX(), min: p.left + EDGE, max: p.right - EDGE, can, others: visiblePlatforms() });
     perform(a);
   }
 
-  async function walkTo(x, t) {
+  async function walkTo(x, t, gait = 'walk') {
     const dist = Math.abs(x - sprite.x);
     if (dist < 3) return true;
-    const ms = (dist / SPEED) * 1000;
-    sprite.play('walk', { flip: x < sprite.x });
+    const clip = can(gait) ? gait : 'walk';
+    const ms = (dist / SPEED[clip]) * 1000;
+    sprite.play(clip, { flip: x < sprite.x });
     sprite.moveTo(x, ms);
     const ok = await wait(ms, t);
     if (!ok && sprite) sprite.moveTo(sprite.currentX(layer.getBoundingClientRect().left), 0);
@@ -102,17 +100,20 @@ export function createPet() {
   }
 
   /** Walk to the edge facing the target, hop over, land somewhere on it. */
-  async function travel(to, t) {
+  async function travel(to, t, gait) {
     const from = platforms[on]; const dest = platforms[to];
     if (!from || !dest) return false;
     const goingRight = (dest.left + dest.right) / 2 > feetX();
     const edgeF = goingRight ? 0.95 : 0.05;
-    if (!(await walkTo(xOn(from, edgeF), t))) return false;
+    if (!(await walkTo(xOn(from, edgeF), t, gait))) return false;
     const landF = goingRight ? 0.15 + Math.random() * 0.35 : 0.5 + Math.random() * 0.35;
     const lx = xOn(dest, landF);
     const dist = Math.hypot(lx - sprite.x, dest.top - sprite.y);
-    sprite.play('walk', { flip: !goingRight });
-    await sprite.hop(lx, dest.top, Math.max(380, Math.min(900, dist * 2.4)), 18 + Math.min(30, dist * 0.12));
+    const ms = Math.max(520, Math.min(1000, dist * 2.6));
+    // the jump frames (crouch, take-off, peak, fall, landing) are stretched over the flight
+    if (can('jump')) sprite.play('jump', { flip: !goingRight, speed: sprite.duration('jump') / ms });
+    else sprite.play('walk', { flip: !goingRight });
+    await sprite.hop(lx, dest.top, ms, 18 + Math.min(30, dist * 0.12));
     if (t !== token) return false;
     on = to;
     remember();
@@ -125,14 +126,23 @@ export function createPet() {
     const t = token;
     sprite.hideCard();
     const done = () => { if (t === token) { remember(); rest(); } };
-    if (a.type === 'walk' && can('walk')) {
-      if (Number.isInteger(a.platform) && platforms[a.platform]) { if (await travel(a.platform, t)) done(); return; }
+    if ((a.type === 'walk' || a.type === 'run') && can('walk')) {
+      if (Number.isInteger(a.platform) && platforms[a.platform]) { if (await travel(a.platform, t, a.type)) done(); return; }
       const p = platforms[on];
       const target = Math.max(p.left + EDGE, Math.min(p.right - EDGE, a.x ?? feetX())) - sprite.pw / 2;
-      if (await walkTo(target, t)) done();
+      if (await walkTo(target, t, a.type)) done();
       return;
     }
-    if (a.type === 'sleep') { sprite.play(['sleep', 'sit', 'idle'].find((n) => sprite.has(n))); return; }
+    if (a.type === 'sleep' && can('sleep')) {
+      sprite.play('sleep');
+      if (await wait(9000 + Math.random() * 8000, t)) done(); // naps, then wakes up by itself
+      return;
+    }
+    if (a.type === 'jump' && can('jump')) {
+      sprite.arc(Math.round(sprite.ph * 0.13), sprite.duration('jump'), [[0, 0], [0.19, 0], [0.36, 1], [0.6, 1], [0.77, 0], [1, 0]]);
+      sprite.play('jump', { onDone: done });
+      return;
+    }
     if (a.type === 'card' && can('card')) {
       sprite.play('card');
       sprite.showCard(pet.getWord() || '✓');
@@ -140,6 +150,7 @@ export function createPet() {
       return;
     }
     if (can(a.type) && !['idle', 'sit'].includes(a.type)) { sprite.play(a.type, { onDone: done }); return; }
+    if (a.type === 'sit' && can('sit')) { sprite.play('sit'); if (await wait(3000 + Math.random() * 3000, t)) done(); return; }
     rest();
   }
 
@@ -149,12 +160,12 @@ export function createPet() {
     touch();
     if (!sprite || reduceMotion()) return;
     const t = brain.tap(can);
-    if (t === 'walk') {
+    if (t === 'walk' || t === 'run') {
       platforms = measure();
       const others = visiblePlatforms();
-      if (others.length) return perform({ type: 'walk', platform: others[Math.floor(Math.random() * others.length)] });
+      if (others.length) return perform({ type: t, platform: others[Math.floor(Math.random() * others.length)] });
       const p = platforms[on];
-      return perform({ type: 'walk', x: feetX() > (p.left + p.right) / 2 ? p.left + EDGE : p.right - EDGE });
+      return perform({ type: t, x: feetX() > (p.left + p.right) / 2 ? p.left + EDGE : p.right - EDGE });
     }
     perform({ type: t });
   }

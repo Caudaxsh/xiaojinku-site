@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createBrain, SLEEP_AFTER_MS, TAP_BAG } from '../js/pet/brain.js';
+import { createBrain, TAP_BAG } from '../js/pet/brain.js';
 import { validatePack } from '../js/pet/pack.js';
 
 const seeded = (seed = 7) => () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
-const ctx = (extra = {}) => ({ idleFor: 0, x: 100, min: -4, max: 230, ...extra });
+const ctx = (extra = {}) => ({ x: 100, min: -4, max: 230, ...extra });
 
 test('never repeats the same autonomous action twice in a row', () => {
   let t = 0;
@@ -47,12 +47,21 @@ test('sometimes moves to another platform', () => {
   assert.ok(hops > 10 && strolls > 10, `${hops} hops, ${strolls} strolls`);
 });
 
-test('falls asleep when left alone, stays asleep, and a tap wakes it with a wave', () => {
-  const brain = createBrain({ rng: seeded(), now: () => 1e9 });
-  assert.equal(brain.next(ctx({ idleFor: SLEEP_AFTER_MS })).type, 'sleep');
-  assert.equal(brain.next(ctx({ idleFor: SLEEP_AFTER_MS + 5000 })).type, 'sleep');
-  assert.equal(brain.tap(), 'wave');
-  assert.notEqual(brain.next(ctx()).type, 'sleep');
+test('autonomous: with every action available it keeps switching between many different actions', () => {
+  let t = 0;
+  const brain = createBrain({ rng: seeded(21), now: () => (t += 8000) });
+  const counts = {};
+  for (let i = 0; i < 300; i++) { const a = brain.next(ctx({ others: [1, 2] })); counts[a.type] = (counts[a.type] || 0) + 1; }
+  for (const type of ['walk', 'run', 'jump', 'think', 'sleep']) assert.ok(counts[type] > 8, `${type}: ${JSON.stringify(counts)}`);
+});
+
+test('sleep needs room and has a long cooldown', () => {
+  let t = 1e9;
+  const brain = createBrain({ rng: seeded(4), now: () => t });
+  for (let i = 0; i < 200; i++) assert.notEqual(brain.next(ctx({ min: 0, max: 30 })).type, 'sleep');
+  const gaps = []; let lastSleep = null;
+  for (let i = 0; i < 400; i++) { t += 3000; if (brain.next(ctx()).type === 'sleep') { if (lastSleep !== null) gaps.push(t - lastSleep); lastSleep = t; } }
+  assert.ok(gaps.length > 2 && gaps.every((g) => g >= 45000), gaps.join(','));
 });
 
 test('taps cycle through every reaction without repeating back to back', () => {
@@ -88,7 +97,7 @@ test('a pack with only idle + walk: never picks missing actions, taps stroll', (
   const brain = createBrain({ rng: seeded(9), now: () => 1e9 });
   const can = (type) => type === 'walk';
   for (let i = 0; i < 200; i++) {
-    const a = brain.next(ctx({ can, idleFor: SLEEP_AFTER_MS * 2 }));
+    const a = brain.next(ctx({ can }));
     assert.ok(['walk', 'idle'].includes(a.type), a.type);
   }
   assert.equal(brain.tap(can), 'walk');
