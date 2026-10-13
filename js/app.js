@@ -909,18 +909,19 @@ function petPanel() {
     <div class="panel">
       <h2>首頁寵物</h2>
       <div class="set-row">
-        <div><b>顯示寵物</b><p>${p ? `角色：${esc(p.name || '未命名')}・${Object.keys(p.clips).length} 組動作` : '還沒有載入角色素材'}</p></div>
+        <div><b>顯示寵物</b><p>${p ? `角色：${esc(p.name || '未命名')}${pet.builtin ? '（內建）' : '（自己載入）'}・${Object.keys(p.clips).length} 組動作` : '還沒有載入角色素材'}</p></div>
         <button class="switch" role="switch" aria-checked="${S.settings.pet}" data-act="toggle-pet" aria-label="顯示寵物"${p ? '' : ' disabled'}></button>
       </div>
       <div class="set-row">
         <div><b>安靜模式</b><p>寵物不再自己走動，只在你點牠時反應</p></div>
         <button class="switch" role="switch" aria-checked="${S.settings.petQuiet}" data-act="toggle-pet-quiet" aria-label="寵物安靜模式"${p ? '' : ' disabled'}></button>
       </div>
-      <p class="muted small" style="margin-top:8px">角色素材是一個檔案（.petpack.json），只存在這支手機裡，不會放到網站上。系統設定開啟「減少動態效果」時，寵物只會靜靜坐著。</p>
+      <p class="muted small" style="margin-top:8px">網站內建一個角色；也可以載入自己的角色素材檔（.petpack.json，只存在這支手機裡）來更換。系統設定開啟「減少動態效果」時，寵物只會靜靜坐著。</p>
       <div class="btn-row" style="margin-top:12px">
         <label class="btn" for="pet-file">${icon('upload', { size: 18 })}${p ? '更換' : '載入'}角色素材</label>
         <input id="pet-file" type="file" accept="application/json,.json" hidden>
-        ${p ? `<a class="btn" href="pet.html">${icon('reviewing', { size: 18 })}預覽所有動作</a><button class="btn danger" data-act="pet-remove">${icon('trash', { size: 18 })}移除素材</button>` : ''}
+        ${p ? `<a class="btn" href="pet.html">${icon('reviewing', { size: 18 })}預覽所有動作</a>` : ''}
+        ${p && !pet.builtin ? `<button class="btn danger" data-act="pet-remove">${icon('trash', { size: 18 })}改回內建角色</button>` : ''}
       </div>
     </div>`;
 }
@@ -1004,6 +1005,7 @@ async function loadPetFile(file) {
   try {
     const pack = await readPackFile(file);
     await S.store.setMeta('petpack', pack);
+    pet.builtin = false;
     pet.setPack(pack);
     toast(`已載入角色素材：${pack.name || ''}`);
     renderSettings();
@@ -1112,10 +1114,10 @@ const actions = {
     await saveMeta('settings', S.settings);
   },
   'pet-remove': async (el) => {
-    if (!armed(el, '再按一次，移除角色素材')) return;
+    if (!armed(el, '再按一次，改回內建角色')) return;
     await saveMeta('petpack', null);
-    pet.setPack(null);
-    toast('已移除角色素材');
+    await pet.reset(S.store);
+    toast('已改回內建角色');
     renderSettings();
   },
   'toggle-autoplay': async (el) => {
@@ -1153,7 +1155,7 @@ const actions = {
   wipe: async (el) => {
     if (!armed(el, '再按一次，確認清除全部資料（無法復原）')) return;
     await S.store.clear();
-    if (pet.pack) await saveMeta('petpack', pet.pack);
+    if (pet.pack && !pet.builtin) await saveMeta('petpack', pet.pack);
     S.cards = []; S.days = []; S.clock = srs.newClock(); S.settings = { ...DEFAULT_SETTINGS }; S.newToday = { date: '', count: 0, bonus: 0 }; S.lastImport = null;
     toast('已清除');
     render();

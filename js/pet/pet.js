@@ -125,7 +125,8 @@ export function createPet() {
   }
 
   Object.assign(pet, {
-    async init(store) { pet.pack = await loadPack(store); return pet.pack; },
+    async init(store) { const r = await loadPack(store); pet.pack = r.pack; pet.builtin = r.builtin; return pet.pack; },
+    async reset(store) { return pet.init(store).then((p) => { pet.setPack(p); return p; }); },
     setPack(pack) { pet.pack = pack; if (stage) { const s = stage; pet.detach(); if (supported()) pet.attach(s); } },
     active: () => supported(),
 

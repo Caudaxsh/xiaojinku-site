@@ -1,5 +1,5 @@
 // A character pack is one JSON file: a sprite sheet (PNG data URL) plus a table of named clips.
-// The site itself ships no character art; the pack is loaded on the device from Settings.
+// The site ships one built-in pack (pet/goku.petpack.json); a pack loaded from Settings replaces it on that device.
 //
 //   { v: 1, name, w, h, cols, count, scale, base,
 //     sheet: "data:image/png;base64,...",
@@ -36,11 +36,25 @@ export async function readPackFile(file) {
   return pack;
 }
 
-export async function loadPack(store) {
+export const BUILTIN_URL = 'pet/goku.petpack.json';
+
+/** The character that ships with the site. */
+export async function loadBuiltin() {
   try {
-    const pack = await store.getMeta('petpack');
-    return pack && !validatePack(pack) ? pack : null;
+    const res = await fetch(new URL(`../../${BUILTIN_URL}`, import.meta.url));
+    const pack = await res.json();
+    return validatePack(pack) ? null : pack;
   } catch {
     return null;
   }
+}
+
+/** A pack the user loaded on this device wins; otherwise the built-in character. */
+export async function loadPack(store) {
+  try {
+    const own = await store.getMeta('petpack');
+    if (own && !validatePack(own)) return { pack: own, builtin: false };
+  } catch { /* fall through to the built-in character */ }
+  const pack = await loadBuiltin();
+  return pack ? { pack, builtin: true } : { pack: null, builtin: false };
 }
