@@ -4,9 +4,12 @@
 // The pet is autonomous: after every action it rests briefly, then picks the next one by itself.
 // Taps are an extra, not a requirement.
 
-export const REST_MS = [2200, 5200];
+export const REST_MS = [1200, 6000];     // pause after an active action (varies a lot, with the odd long one)
+export const CALM_REST_MS = [5500, 11000]; // pause after thinking / sleeping / sitting: let it sink in
+export const CALM = ['think', 'sleep', 'sit', 'idle'];
+export const HOLD_MS = { think: [9000, 16000], sleep: [22000, 42000], sit: [6000, 11000] }; // how long a calm action lasts
 export const MOVES = ['walk', 'run'];
-const COOLDOWN = { jump: 6000, run: 5000, think: 14000, sleep: 45000, peek: 30000, peek_title: 30000, climb: 25000, wave: 60000, cheer: 20000, encourage: 30000 };
+const COOLDOWN = { jump: 6000, run: 5000, think: 40000, sleep: 90000, peek: 30000, peek_title: 30000, climb: 25000, wave: 60000, cheer: 20000, encourage: 30000 };
 const WEIGHTS = { walk: 24, run: 15, idle: 8, jump: 13, think: 12, sleep: 11, peek: 9, peek_title: 8, climb: 11, sit: 8, wave: 3 };
 export const TAP_BAG = ['wave', 'jump', 'card', 'think', 'run'];
 const MIN_SLEEP_SPAN = 56; // lying down needs room on the platform
@@ -16,6 +19,8 @@ export function createBrain({ rng = Math.random, now = () => Date.now() } = {}) 
   let lastTap = null;
   let bag = [];
   const at = {}; // last time each action ran
+  // Each visit gets its own personality: every action's weight is nudged by up to ±45%.
+  const weights = Object.fromEntries(Object.entries(WEIGHTS).map(([k, w]) => [k, w * (0.55 + rng() * 0.9)]));
 
   const ready = (type) => !COOLDOWN[type] || !at[type] || now() - at[type] >= COOLDOWN[type];
   const mark = (type) => { at[type] = now(); last = type; return type; };
@@ -37,7 +42,13 @@ export function createBrain({ rng = Math.random, now = () => Date.now() } = {}) 
 
   return {
     /** How long to rest before the next autonomous action. */
-    restFor: () => between(REST_MS),
+    restFor() {
+      if (CALM.includes(last)) return between(CALM_REST_MS);
+      return rng() < 0.12 ? between([7000, 12000]) : between(REST_MS);
+    },
+
+    /** How long a calm action (think / sleep / sit) lasts. */
+    holdFor: (type) => between(HOLD_MS[type] || [3000, 6000]),
 
     /**
      * Next autonomous action. ctx: { x, min, max (feet range on this platform), others (indices of
@@ -46,7 +57,9 @@ export function createBrain({ rng = Math.random, now = () => Date.now() } = {}) 
     next(ctx) {
       const can = ctx.can || (() => true);
       const span = ctx.max - ctx.min;
-      const options = Object.entries(WEIGHTS).filter(([type]) => type !== last && ready(type) && can(type)
+      const afterCalm = CALM.includes(last); // never drift from one calm action straight into another
+      const options = Object.entries(weights).filter(([type]) => type !== last && ready(type) && can(type)
+        && !(afterCalm && CALM.includes(type))
         && (type !== 'sleep' || span >= MIN_SLEEP_SPAN)
         && (type !== 'peek' || ctx.canPeek)             // only behind boxes that have a solid face
         && (type !== 'peek_title' || ctx.canPeekTitle)  // only from behind the title letters
@@ -56,6 +69,14 @@ export function createBrain({ rng = Math.random, now = () => Date.now() } = {}) 
       let pick = options[options.length - 1][0];
       for (const [type, w] of options) { roll -= w; if (roll <= 0) { pick = type; break; } }
       return MOVES.includes(pick) ? move(pick, ctx) : { type: mark(pick) };
+    },
+
+    /** A random action for the moment the page opens: anywhere in the repertoire, no cooldown or "last" history. */
+    start(ctx) {
+      last = null;
+      let a = this.next(ctx);
+      for (let i = 0; i < 4 && a.type === 'idle'; i++) { last = null; a = this.next(ctx); } // opening with "do nothing" would look broken
+      return a;
     },
 
     /** A tap: cycle through reactions without repeating. */
