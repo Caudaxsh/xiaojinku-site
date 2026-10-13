@@ -17,7 +17,7 @@ test('never repeats the same autonomous action twice in a row', () => {
   }
 });
 
-test('walk targets stay inside the stage and are a real distance away', () => {
+test('walk targets stay on the platform and are a real distance away', () => {
   const brain = createBrain({ rng: seeded(3), now: () => 1e9 });
   for (let i = 0; i < 300; i++) {
     const x = Math.round(-4 + (i % 7) * 40);
@@ -29,9 +29,22 @@ test('walk targets stay inside the stage and are a real distance away', () => {
   }
 });
 
-test('a narrow stage never asks the pet to walk', () => {
+test('a tiny platform: hop elsewhere if possible, otherwise stay put', () => {
   const brain = createBrain({ rng: seeded(5), now: () => 1e9 });
-  for (let i = 0; i < 200; i++) assert.notEqual(brain.next(ctx({ min: -4, max: 40 })).type, 'walk');
+  for (let i = 0; i < 200; i++) {
+    const a = brain.next(ctx({ min: 0, max: 10 }));
+    assert.ok(a.type !== 'walk' || a.x === undefined);
+  }
+  const hops = [];
+  for (let i = 0; i < 200; i++) { const a = brain.next(ctx({ min: 0, max: 10, others: [2, 5] })); if (a.type === 'walk') hops.push(a.platform); }
+  assert.ok(hops.length > 0 && hops.every((p) => p === 2 || p === 5));
+});
+
+test('sometimes moves to another platform', () => {
+  const brain = createBrain({ rng: seeded(13), now: () => 1e9 });
+  let hops = 0; let strolls = 0;
+  for (let i = 0; i < 300; i++) { const a = brain.next(ctx({ others: [1, 3] })); if (a.type === 'walk') (a.platform !== undefined ? hops++ : strolls++); }
+  assert.ok(hops > 10 && strolls > 10, `${hops} hops, ${strolls} strolls`);
 });
 
 test('falls asleep when left alone, stays asleep, and a tap wakes it with a wave', () => {

@@ -9,6 +9,10 @@ export class Sprite {
     this.scale = scale;
     this.pw = pack.w * scale;
     this.ph = pack.h * scale;
+    // empty rows under the feet, so y can mean "where the feet touch"
+    this.footPad = (pack.h - (pack.base || pack.h)) * scale;
+    this.x = 0;
+    this.y = 0;
     this.rows = Math.ceil(pack.count / pack.cols);
     this.token = 0;
     this.timer = 0;
@@ -95,13 +99,37 @@ export class Sprite {
     if (this.resume) { const r = this.resume; this.resume = null; r(); }
   }
 
-  /** Slide to x (px, relative to the stage) over ms, linearly. */
-  moveTo(x, ms = 0) {
+  /** Where the element's top-left goes so that the feet stand at (x, y). x is the left edge of the sprite. */
+  t(x, y) { return `translate3d(${x}px,${y - this.ph + this.footPad}px,0)`; }
+
+  /** Slide to x (feet staying on line y) over ms, linearly. */
+  moveTo(x, ms = 0, y = this.y) {
+    this.el.getAnimations?.().forEach((a) => a.cancel());
     this.el.style.transition = ms ? `transform ${ms}ms linear` : 'none';
-    this.el.style.transform = `translate3d(${x}px,0,0)`;
+    this.el.style.transform = this.t(x, y);
+    this.x = x; this.y = y;
   }
 
-  currentX(stageLeft) { return this.el.getBoundingClientRect().left - stageLeft; }
+  /** Read back where the sprite really is (after an interrupted move). */
+  currentX(layerLeft) { return this.el.getBoundingClientRect().left - layerLeft; }
+
+  /** A parabolic hop from the current spot to (x, y). Resolves when it lands. */
+  hop(x, y, ms, height = 26) {
+    const x0 = this.x; const y0 = this.y;
+    const peak = Math.min(y0, y) - height;
+    const frames = [];
+    for (let i = 0; i <= 10; i++) {
+      const t = i / 10;
+      // quadratic through (0,y0) (0.5,peak) (1,y)
+      const yy = (1 - t) * (1 - t) * y0 + 2 * (1 - t) * t * (2 * peak - (y0 + y) / 2) + t * t * y;
+      frames.push({ transform: this.t(x0 + (x - x0) * t, yy) });
+    }
+    this.el.style.transition = 'none';
+    const anim = this.el.animate ? this.el.animate(frames, { duration: ms, easing: 'linear' }) : null;
+    this.el.style.transform = this.t(x, y);
+    this.x = x; this.y = y;
+    return anim ? anim.finished.catch(() => {}) : Promise.resolve();
+  }
 
   /** Arc the body upward by `rise` px over ms (the frames show the pose; this moves it). */
   arc(rise, ms, shape = [[0, 0], [0.19, 0], [0.32, 1], [0.6, 1], [0.79, 0], [1, 0]]) {
