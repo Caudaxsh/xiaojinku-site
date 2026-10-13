@@ -87,7 +87,7 @@ export function createPet() {
     if (!p) return rest();
     const a = brain.next({
       x: feetX(), min: lowFeet(p), max: p.right - EDGE, can, others: visiblePlatforms(),
-      canPeek: /^(tile|panel)/.test(p.key), canPeekTitle: p.key === 'title' && p.right - EDGE - lowFeet(p) > 30, canClimb: climbPlans().length > 0,
+      canPeek: /^(tile|panel)/.test(p.key), canPeekTitle: titleIndex() >= 0, canClimb: climbPlans().length > 0,
     });
     perform(a);
   }
@@ -123,6 +123,14 @@ export function createPet() {
     on = to;
     remember();
     return true;
+  }
+
+  /** The title platform, if it is on screen and has room right of the date. */
+  function titleIndex() {
+    if (!sprite || !layer) return -1;
+    const i = platforms.findIndex((q) => q.key === 'title');
+    const q = platforms[i];
+    return q && onScreen(q) && q.right - EDGE - lowFeet(q) > 30 ? i : -1;
   }
 
   /** Frames of a peek have their cut line at the bottom row: keep it this far behind the edge. */
@@ -227,7 +235,13 @@ export function createPet() {
       return;
     }
     if (a.type === 'peek' && can('peek') && /^(tile|panel)/.test(platforms[on]?.key || '')) { await peek(t, 'peek'); return; }
-    if (a.type === 'peek_title' && can('peek_title') && platforms[on]?.key === 'title') { await peek(t, 'peek_title'); return; }
+    if (a.type === 'peek_title' && can('peek_title')) {
+      const ti = titleIndex();
+      if (ti < 0) return done();
+      if (on !== ti && !(await travel(ti, t, 'walk'))) return; // hop up onto the title first
+      await peek(t, 'peek_title');
+      return;
+    }
     if (a.type === 'climb') {
       const plans = a.plan ? [a.plan] : climbPlans();
       if (plans.length) { await climb(t, plans[Math.floor(Math.random() * plans.length)]); return; }
@@ -323,7 +337,7 @@ export function createPet() {
 
     get sprite() { return sprite; },
     /** For tests and the preview page only. */
-    debug: { run: (a) => perform(a), platforms: () => platforms, plans: () => climbPlans(), go: (key) => { const i = platforms.findIndex((p) => p.key === key); if (i >= 0) { on = i; sprite.moveTo(xOn(platforms[i], 0.5), 0, platforms[i].top); homeKey = key; } } },
+    debug: { run: (a) => perform(a), titleIndex: () => titleIndex(), platforms: () => platforms, plans: () => climbPlans(), go: (key) => { const i = platforms.findIndex((p) => p.key === key); if (i >= 0) { on = i; sprite.moveTo(xOn(platforms[i], 0.5), 0, platforms[i].top); homeKey = key; } } },
   });
 
   return pet;

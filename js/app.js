@@ -391,6 +391,15 @@ function renderToday() {
  * Where the pet may stand on the home page: on top of the title letters, the streak,
  * each stat tile, the start button and the panels. Viewport coordinates.
  */
+/** Right edge of an element's text itself (a block element's own box is as wide as its column). */
+function textRight(el) {
+  if (!el) return null;
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const rects = [...range.getClientRects()];
+  return rects.length ? Math.max(...rects.map((r) => r.right)) : null;
+}
+
 function todayPlatforms() {
   const out = [];
   const title = $('.page-head h1');
@@ -400,7 +409,7 @@ function todayPlatforms() {
     const r = range.getClientRects()[0];
     const size = parseFloat(getComputedStyle(title).fontSize);
     // the line box is taller than the letters: stand on the cap height, not on the leading
-    if (r) out.push({ key: 'title', avoidLeft: $('.eyebrow')?.getBoundingClientRect().right ?? null, bottom: r.bottom, left: r.left, right: r.right, top: r.top + (r.height - size) / 2 + size * 0.17 });
+    if (r) out.push({ key: 'title', avoidLeft: textRight($('.eyebrow')), bottom: r.bottom, left: r.left, right: r.right, top: r.top + (r.height - size) / 2 + size * 0.17 });
   }
   const add = (el, key) => { if (!el) return; const r = el.getBoundingClientRect(); if (r.width) out.push({ key, left: r.left, right: r.right, top: r.top, bottom: r.bottom }); };
   add($('.streak'), 'streak');
