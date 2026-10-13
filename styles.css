@@ -384,3 +384,5 @@ body.studying .toast { bottom: calc(130px + var(--safe-bottom)); }
 .pet-shadow { position: absolute; left: 50%; bottom: 1px; width: 62px; height: 8px; margin-left: -31px; border-radius: 50%; background: radial-gradient(closest-side, rgba(14, 20, 40, 0.2), rgba(14, 20, 40, 0)); }
 .pet-card { position: absolute; display: grid; place-items: center; overflow: hidden; white-space: nowrap; font: 700 12px/1 var(--serif); color: var(--ink); pointer-events: none; }
 .pet-card[hidden] { display: none; }
+
+.linkish { display: inline-flex; align-items: center; gap: 4px; color: var(--rust); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; font-size: inherit; }

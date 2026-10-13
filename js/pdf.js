@@ -3,8 +3,10 @@
 // lines that the PDF wrapped at the right margin, so one English sentence
 // does not turn into two.
 
-const LIB = new URL('../vendor/pdfjs/pdf.min.mjs', import.meta.url).href;
-const WORKER = new URL('../vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
+// Plain .js names on purpose: every static host serves .js as JavaScript, while some serve .mjs as
+// application/octet-stream, which makes browsers refuse to load a module.
+const LIB = new URL('../vendor/pdfjs/pdf.min.js', import.meta.url).href;
+const WORKER = new URL('../vendor/pdfjs/pdf.worker.min.js', import.meta.url).href;
 
 const NOISE = [/^\d{1,3}$/, /^page\s*\d+/i, /^\d+\s*\/\s*\d+$/, /^第\s*\d+\s*頁/, /^-\s*\d+\s*-$/];
 const TERMINAL = /[.!?。！？」”"]$/;
@@ -12,11 +14,32 @@ const TERMINAL = /[.!?。！？」”"]$/;
 const STRUCTURAL = /^(?:#{1,6}\s*\S|[-•*·●○■]\s|\d+\s*[.)、]\s|[/[][^\s]*[/\]]$|音標[:：])/;
 const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩';
 
-/** Glyphs the PDF font could not map (e.g. ① ②) come out as NUL; restore them in order. */
-function fixGlyphs(text, stats) {
-  let n = 0;
+/**
+ * Glyphs the PDF font could not map come out as NUL. Two very different things cause that:
+ *  - ① ② in a numbered list (ChatGPT's font has no circled numbers): restore them in order;
+ *  - a rare Chinese character the font does not contain, which is simply missing from the PDF:
+ *    nothing can recover it, so mark the spot with □ and tell the user where it was.
+ * A NUL counts as a list number only where a number could stand: at the start of a line, after a
+ * colon / semicolon / opening bracket, or when the same line has several of them in a row.
+ */
+export function fixGlyphs(text, stats) {
+  stats.missingAt ||= [];
   const out = text
-    .replace(/\u0000/g, () => { stats.restored += 1; return CIRCLED[n++] || '•'; })
+    .split('\n')
+    .map((line) => {
+      const nuls = (line.match(/\u0000/g) || []).length;
+      if (!nuls) return line;
+      let n = 0;
+      return line.replace(/\u0000/g, (m, offset) => {
+        const before = line.slice(0, offset).replace(/\s+$/, '');
+        const asNumber = nuls >= 2 || !before || /[：:；;（(]$/.test(before);
+        if (asNumber) { stats.restored += 1; return CIRCLED[n++] || '•'; }
+        stats.missing = (stats.missing || 0) + 1;
+        stats.missingAt.push(line.replace(/\u0000/g, '□').trim().slice(0, 60));
+        return '□';
+      });
+    })
+    .join('\n')
     .replace(/[\u0001-\u0008\u000b-\u001f\u007f]/g, '');
   stats.tofu += (out.match(/\uFFFD/g) || []).length;
   return out;
@@ -126,29 +149,132 @@ export function stripRunningLines(lines, pageCount) {
   return { lines: kept, removed: lines.length - kept.length };
 }
 
-/** Same as pdfToText, plus a small report the import screen can show. */
-export async function pdfToTextWithStats(file, onProgress = () => {}) {
-  const pdfjs = await import(LIB);
-  pdfjs.GlobalWorkerOptions.workerSrc = WORKER;
-  const data = new Uint8Array(await file.arrayBuffer());
-  const task = pdfjs.getDocument({ data, isEvalSupported: false });
-  const doc = await task.promise;
-  const stats = { pages: doc.numPages, restored: 0, tofu: 0, headerLines: 0 };
-  let lines = [];
-  for (let n = 1; n <= doc.numPages; n++) {
-    const page = await doc.getPage(n);
-    const { width, height } = page.getViewport({ scale: 1 });
-    const content = await page.getTextContent();
-    pageLines(content.items, width, height, stats).forEach((l) => lines.push({ ...l, page: n }));
-    onProgress(n, doc.numPages);
+/* ------------------------------------------------------------- loading pdf.js */
+
+const STALL_MS = 25000;
+
+const withTimeout = (promise, ms, what) => new Promise((resolve, reject) => {
+  const t = setTimeout(() => reject(new Error(`${what} 超過 ${ms / 1000} 秒沒有回應`)), ms);
+  promise.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+});
+
+/** Import a script even if the host serves it with the wrong MIME type: fetch it and re-wrap it as a Blob. */
+async function importViaBlob(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`下載 ${url.split('/').pop()} 失敗（HTTP ${res.status}）`);
+  const blobUrl = URL.createObjectURL(new Blob([await res.text()], { type: 'text/javascript' }));
+  return { mod: await import(blobUrl), blobUrl };
+}
+
+/**
+ * Three ways to start pdf.js, from the normal one to the most forgiving one. Returns the first that works.
+ *   direct   — module + worker from the site (normal)
+ *   blob     — same files, re-wrapped as Blobs (hosts / browsers that reject the MIME type)
+ *   mainThread — no Web Worker at all (browsers where module workers do not start; slower but works)
+ */
+const LOADERS = [
+  { id: 'direct', async load() {
+    const pdfjs = await import(LIB);
+    pdfjs.GlobalWorkerOptions.workerSrc = WORKER;
+    return { pdfjs, cleanup() {} };
+  } },
+  { id: 'blob', async load() {
+    const { mod: pdfjs } = await importViaBlob(LIB);
+    const { blobUrl } = await importViaBlob(WORKER).then((r) => ({ blobUrl: r.blobUrl }));
+    pdfjs.GlobalWorkerOptions.workerPort = new Worker(blobUrl, { type: 'module' });
+    return { pdfjs, cleanup() { pdfjs.GlobalWorkerOptions.workerPort?.terminate(); pdfjs.GlobalWorkerOptions.workerPort = null; } };
+  } },
+  { id: 'mainThread', async load() {
+    const { mod: pdfjs } = await importViaBlob(LIB);
+    const { mod: worker } = await importViaBlob(WORKER);
+    const realWorker = globalThis.Worker;
+    globalThis.pdfjsWorker = worker;
+    globalThis.Worker = function Disabled() { throw new Error('worker disabled'); }; // pdf.js then runs its worker in this thread
+    return { pdfjs, cleanup() { globalThis.Worker = realWorker; } };
+  } },
+];
+
+async function extract(pdfjs, data, onProgress) {
+  const task = pdfjs.getDocument({ data: data.slice(), isEvalSupported: false });
+  try {
+    const doc = await withTimeout(task.promise, STALL_MS, '開啟 PDF');
+    const stats = { pages: doc.numPages, restored: 0, missing: 0, missingAt: [], tofu: 0, headerLines: 0 };
+    let lines = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+      const page = await withTimeout(doc.getPage(n), STALL_MS, `讀取第 ${n} 頁`);
+      const { width, height } = page.getViewport({ scale: 1 });
+      const content = await withTimeout(page.getTextContent(), STALL_MS, `讀取第 ${n} 頁文字`);
+      pageLines(content.items, width, height, stats).forEach((l) => lines.push({ ...l, page: n }));
+      onProgress(n, doc.numPages);
+    }
+    const stripped = stripRunningLines(lines, doc.numPages);
+    lines = stripped.lines;
+    stats.headerLines = stripped.removed;
+    return { text: joinWrapped(lines).map((l) => l.text).join('\n'), stats };
+  } finally {
+    try { task.destroy(); } catch { /* already gone */ }
   }
-  task.destroy();
-  const stripped = stripRunningLines(lines, doc.numPages);
-  lines = stripped.lines;
-  stats.headerLines = stripped.removed;
-  return { text: joinWrapped(lines).map((l) => l.text).join('\n'), stats };
+}
+
+/** True for a real PDF: the header "%PDF-" appears within the first KB (the PDF spec allows junk before it). */
+export function hasPdfHeader(bytes) {
+  const head = new TextDecoder('latin1').decode(bytes.subarray(0, 1024));
+  return head.includes('%PDF-');
+}
+
+export class PdfReadError extends Error {
+  constructor(kind, message, diag) { super(message); this.name = 'PdfReadError'; this.kind = kind; this.diag = diag; }
+}
+
+/** What the user is told for each kind of failure. */
+export function explain(kind) {
+  return {
+    password: '這個 PDF 有密碼保護，讀不了。請先解除密碼，或請 ChatGPT 重新輸出一份。',
+    invalid: '這個檔案不是完整的 PDF（可能下載到一半，或被改過副檔名）。請重新下載，或改用「貼上版」。',
+    empty: '這個 PDF 裡讀不到文字，可能是掃描成圖片的 PDF。請改用「貼上版」提示詞，直接複製 ChatGPT 的回覆。',
+    engine: '這個瀏覽器跑不起 PDF 讀取元件（已經試過 3 種方式）。請改用「貼上版」提示詞：複製 ChatGPT 的回覆再貼上就好。',
+  }[kind] || '讀取失敗。';
+}
+
+/** Same as pdfToText, plus a small report the import screen can show. Throws PdfReadError. */
+export async function pdfToTextWithStats(file, onProgress = () => {}) {
+  const data = new Uint8Array(await file.arrayBuffer());
+  const diag = { file: { name: file.name, size: file.size, type: file.type }, tries: [], pdfjs: '6.3.289' };
+  if (!data.length) throw new PdfReadError('invalid', '檔案是空的', diag);
+  if (!hasPdfHeader(data)) throw new PdfReadError('invalid', '找不到 %PDF 檔頭', diag);
+  for (const loader of LOADERS) {
+    let session = null;
+    const t0 = performance.now();
+    try {
+      session = await withTimeout(loader.load(), STALL_MS, '載入 PDF 元件');
+      const out = await extract(session.pdfjs, data, onProgress);
+      diag.tries.push({ step: loader.id, ok: true, ms: Math.round(performance.now() - t0) });
+      out.stats.via = loader.id;
+      out.stats.diag = diag;
+      return out;
+    } catch (err) {
+      const name = err?.name || 'Error';
+      diag.tries.push({ step: loader.id, ok: false, error: `${name}: ${err?.message || err}`, ms: Math.round(performance.now() - t0) });
+      // These are about the file, not about how pdf.js was started: retrying cannot help.
+      if (name === 'PasswordException') throw new PdfReadError('password', err.message, diag);
+      if (name === 'InvalidPDFException' || name === 'FormatError') throw new PdfReadError('invalid', err.message, diag);
+    } finally {
+      session?.cleanup();
+    }
+  }
+  throw new PdfReadError('engine', '所有載入方式都失敗', diag);
 }
 
 export async function pdfToText(file, onProgress = () => {}) {
   return (await pdfToTextWithStats(file, onProgress)).text;
+}
+
+/** Plain-text report the user can copy and send when something fails. */
+export function formatDiag(diag, extra = '') {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  return [
+    'Cash Volcab PDF 診斷', extra, `檔案：${diag.file.name}（${diag.file.size} bytes，${diag.file.type || '未知類型'}）`,
+    ...diag.tries.map((t) => `- ${t.step}: ${t.ok ? '成功' : `失敗 ${t.error}`} (${t.ms}ms)`),
+    `瀏覽器：${ua}`,
+  ].filter(Boolean).join('\n');
 }
