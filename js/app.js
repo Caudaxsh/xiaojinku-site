@@ -7,7 +7,7 @@ import { createPet } from './pet/pet.js';
 import { readPackFile } from './pet/pack.js';
 
 const APP_NAME = 'Cash Volcab';
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.4.0';
 const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, pet: true, petQuiet: false };
 
 const S = {
@@ -1065,6 +1065,7 @@ async function loadPetFile(file) {
   try {
     const pack = await readPackFile(file);
     await S.store.setMeta('petpack', pack);
+    await S.store.setMeta('petpackCustom', true);
     pet.builtin = false;
     pet.setPack(pack);
     toast(`已載入角色素材：${pack.name || ''}`);
@@ -1180,6 +1181,7 @@ const actions = {
   'pet-remove': async (el) => {
     if (!armed(el, '再按一次，改回內建角色')) return;
     await saveMeta('petpack', null);
+    await saveMeta('petpackCustom', false);
     await pet.reset(S.store);
     toast('已改回內建角色');
     renderSettings();
@@ -1219,7 +1221,7 @@ const actions = {
   wipe: async (el) => {
     if (!armed(el, '再按一次，確認清除全部資料（無法復原）')) return;
     await S.store.clear();
-    if (pet.pack && !pet.builtin) await saveMeta('petpack', pet.pack);
+    if (pet.pack && !pet.builtin) { await saveMeta('petpack', pet.pack); await saveMeta('petpackCustom', true); }
     S.cards = []; S.days = []; S.clock = srs.newClock(); S.settings = { ...DEFAULT_SETTINGS }; S.newToday = { date: '', count: 0, bonus: 0 }; S.lastImport = null;
     toast('已清除');
     render();
@@ -1297,7 +1299,7 @@ async function boot() {
   hydrateIcons();
   render();
   navigator.storage?.persist?.().catch(() => {});
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
 }
 
 boot();

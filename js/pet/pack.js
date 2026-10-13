@@ -37,11 +37,13 @@ export async function readPackFile(file) {
 }
 
 export const BUILTIN_URL = 'pet/goku.petpack.json';
+/** Bump when pet/goku.petpack.json changes: it goes into the URL so no cache can serve an old copy. */
+export const BUILTIN_REV = 4;
 
-/** The character that ships with the site. */
+/** The character that ships with the site. Always revalidated: a stale copy would hide new actions. */
 export async function loadBuiltin() {
   try {
-    const res = await fetch(new URL(`../../${BUILTIN_URL}`, import.meta.url));
+    const res = await fetch(`${new URL(`../../${BUILTIN_URL}`, import.meta.url).href}?rev=${BUILTIN_REV}`, { cache: 'no-cache' });
     const pack = await res.json();
     return validatePack(pack) ? null : pack;
   } catch {
@@ -49,11 +51,16 @@ export async function loadBuiltin() {
   }
 }
 
-/** A pack the user loaded on this device wins; otherwise the built-in character. */
+/**
+ * A pack the user chose on this device wins; otherwise the built-in character.
+ * Only packs loaded explicitly (flagged) count: an older copy saved before the built-in character
+ * existed must not keep hiding the built-in one's new actions.
+ */
 export async function loadPack(store) {
   try {
     const own = await store.getMeta('petpack');
-    if (own && !validatePack(own)) return { pack: own, builtin: false };
+    const chosen = (await store.getMeta('petpackCustom')) === true;
+    if (chosen && own && !validatePack(own)) return { pack: own, builtin: false };
   } catch { /* fall through to the built-in character */ }
   const pack = await loadBuiltin();
   return pack ? { pack, builtin: true } : { pack: null, builtin: false };
