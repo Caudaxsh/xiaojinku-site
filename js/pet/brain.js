@@ -35,10 +35,16 @@ export function createBrain({ rng = Math.random, now = () => Date.now() } = {}) 
       let pick = options[options.length - 1][0];
       for (const [type, w] of options) { roll -= w; if (roll <= 0) { pick = type; break; } }
       if (pick === 'walk') {
+        // somewhere else on the page (another platform), or along the one it stands on
+        const others = ctx.others || [];
         const span = ctx.max - ctx.min;
-        if (span < 80) return { type: mark('sit') };
+        if (others.length && (rng() < 0.4 || span < 24)) {
+          return { type: mark('walk'), platform: others[Math.floor(rng() * others.length)] };
+        }
+        if (span < 24) return { type: mark(can('sit') ? 'sit' : 'idle') };
+        const gap = Math.min(60, span * 0.45);
         let target = ctx.min + rng() * span;
-        if (Math.abs(target - ctx.x) < 60) target = ctx.x < ctx.min + span / 2 ? ctx.max - rng() * span * 0.25 : ctx.min + rng() * span * 0.25;
+        if (Math.abs(target - ctx.x) < gap) target = ctx.x < ctx.min + span / 2 ? ctx.max - rng() * span * 0.25 : ctx.min + rng() * span * 0.25;
         return { type: mark('walk'), x: Math.round(target) };
       }
       return { type: mark(pick) };

@@ -363,7 +363,6 @@ function renderToday() {
       <div><p class="eyebrow">${now.getMonth() + 1} 月 ${now.getDate()} 日</p><h1>${APP_NAME}</h1></div>
       <div class="streak">${icon('trophy', { size: 22 })}<b>${srs.streak(S.days)}</b><span>連續天數</span></div>
     </div>
-    ${pet.active() ? '<div class="pet-stage" id="pet-stage"></div>' : ''}
     <div class="tiles">
       <div class="tile ${c.freshToday ? 'hot' : ''}">${icon('today', { size: 22 })}<div class="num">${c.freshToday}</div><div class="lbl">今日新字</div></div>
       <div class="tile ${c.due ? 'hot' : ''}">${icon('due', { size: 22 })}<div class="num">${c.due}</div><div class="lbl">待複習</div></div>
@@ -384,7 +383,30 @@ function renderToday() {
       <h2 class="ic-label">${icon('difficulty', { size: 18 })}星級複習規則</h2>
       ${RULES}
     </div>`);
-  pet.attach($('#pet-stage'));
+  pet.attach($('#view'), todayPlatforms);
+}
+
+/**
+ * Where the pet may stand on the home page: on top of the title letters, the streak,
+ * each stat tile, the start button and the panels. Viewport coordinates.
+ */
+function todayPlatforms() {
+  const out = [];
+  const title = $('.page-head h1');
+  if (title && title.firstChild) {
+    const range = document.createRange();
+    range.selectNodeContents(title);
+    const r = range.getClientRects()[0];
+    const size = parseFloat(getComputedStyle(title).fontSize);
+    // the line box is taller than the letters: stand on the cap height, not on the leading
+    if (r) out.push({ key: 'title', left: r.left, right: r.right, top: r.top + (r.height - size) / 2 + size * 0.17 });
+  }
+  const add = (el, key) => { if (!el) return; const r = el.getBoundingClientRect(); if (r.width) out.push({ key, left: r.left, right: r.right, top: r.top }); };
+  add($('.streak'), 'streak');
+  document.querySelectorAll('.tile').forEach((el, i) => add(el, `tile${i}`));
+  add($('[data-act="start"]'), 'start');
+  document.querySelectorAll('#view > .panel').forEach((el, i) => add(el, `panel${i}`));
+  return out;
 }
 
 /* ---------------------------------------------------------------- study */

@@ -41,7 +41,7 @@ b { font-weight: 650; }
 svg { display: block; }
 :focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
 
-#view { max-width: 600px; margin: 0 auto; padding: calc(var(--safe-top) + 22px) 18px calc(98px + var(--safe-bottom)); }
+#view { position: relative; max-width: 600px; margin: 0 auto; padding: calc(var(--safe-top) + 22px) 18px calc(98px + var(--safe-bottom)); }
 body.studying #view { padding: 0; max-width: 680px; }
 .enter { animation: rise 0.32s ease both; }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
@@ -376,9 +376,9 @@ body.studying .toast { bottom: calc(130px + var(--safe-bottom)); }
 }
 
 /* ---------- pixel pet (home page) ---------- */
-/* A reserved band between the header and the tiles: the pet never overlaps text or buttons. */
-.pet-stage { position: relative; height: 128px; margin: -4px 0 6px; pointer-events: none; contain: layout style; }
-.pet { position: absolute; left: 0; bottom: 0; pointer-events: auto; cursor: pointer; touch-action: manipulation; will-change: transform; -webkit-user-select: none; user-select: none; outline-offset: -6px; }
+/* The pet walks on the page's own boxes; the layer is click-through, only the pet takes taps. */
+.pet-layer { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+.pet { position: absolute; left: 0; top: 0; pointer-events: auto; cursor: pointer; touch-action: manipulation; will-change: transform; -webkit-user-select: none; user-select: none; outline-offset: -6px; }
 .pet-y { position: relative; }
 .pet-img { background-repeat: no-repeat; image-rendering: pixelated; }
 .pet-shadow { position: absolute; left: 50%; bottom: 1px; width: 62px; height: 8px; margin-left: -31px; border-radius: 50%; background: radial-gradient(closest-side, rgba(14, 20, 40, 0.2), rgba(14, 20, 40, 0)); }
