@@ -64,7 +64,7 @@
       state.sprites.forEach((s) => s.unmount());
       state.sprites = [];
       const { pack } = state;
-      if (pack && !state.scaleSet) { state.scale = pack.scale || 2; state.scaleSet = true; seg($('#scale'), [[0.5, '0.5×'], [1, '1×'], [2, '2×'], [3, '3×']], state.scale, (v) => { state.scale = Number(v); draw(); }); }
+      if (pack && !state.scaleSet) { state.scale = pack.scale >= 1 ? pack.scale : 2; state.scaleSet = true; seg($('#scale'), [[0.5, '0.5×'], [1, '1×'], [2, '2×'], [3, '3×']], state.scale, (v) => { state.scale = Number(v); draw(); }); }
       const out = $('#out');
       if (!pack) { out.innerHTML = '<div class="empty">還沒有角色素材。請按「載入角色素材檔」，或先到設定載入。</div>'; $('#sheetbox').hidden = true; return; }
       $('#sub').textContent = `${pack.name}・${pack.w}×${pack.h} 畫格・${pack.count} 張影格・${Object.keys(pack.clips).length} 組動作・預設放大 ${pack.scale}×`;

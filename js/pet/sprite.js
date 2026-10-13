@@ -62,12 +62,13 @@ export class Sprite {
    * Play a clip. loop clips repeat until something else plays; once clips call onDone at the end;
    * hold clips repeat like loops (the caller decides when to leave them).
    */
-  play(name, { flip = false, onDone = null, from = 0 } = {}) {
+  play(name, { flip = false, onDone = null, from = 0, speed = 1 } = {}) {
     const clip = this.pack.clips[name];
     if (!clip) return false;
     this.stop();
     const token = this.token;
     this.clip = name;
+    this.el.dataset.clip = name;
     this.flip = flip && clip.side !== false;
     this.seq = clip.seq;
     this.i = from % clip.seq.length;
@@ -84,7 +85,7 @@ export class Sprite {
         }
         if (this.paused) { this.resume = tick; return; }
         tick();
-      }, ms);
+      }, ms / speed);
     };
     tick();
     return true;
