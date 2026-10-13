@@ -67,7 +67,7 @@ export function createPet() {
       }
       case 'jump':
         if (!sprite.has('jump')) return done();
-        sprite.arc(13, sprite.duration('jump'));
+        sprite.arc(Math.round(sprite.ph * 0.1), sprite.duration('jump'));
         sprite.play('jump', { onDone: done });
         return undefined;
       case 'sleep':
@@ -130,6 +130,7 @@ export function createPet() {
       if (!supported() || !el) return;
       stage = el;
       sprite = new Sprite(pet.pack).mount(el);
+      el.style.height = `${sprite.ph}px`; // the stage is exactly as tall as the character
       sprite.el.tabIndex = 0;
       sprite.el.setAttribute('role', 'button');
       sprite.el.setAttribute('aria-label', '寵物，點一下互動');

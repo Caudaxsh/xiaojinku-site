@@ -24,6 +24,9 @@ export class Sprite {
     this.el = el;
     this.yEl = el.querySelector('.pet-y');
     this.img = el.querySelector('.pet-img');
+    const shadow = el.querySelector('.pet-shadow');
+    shadow.style.width = `${Math.round(this.pw * 0.42)}px`;
+    shadow.style.marginLeft = `${-Math.round(this.pw * 0.21)}px`;
     Object.assign(this.img.style, {
       width: `${this.pw}px`, height: `${this.ph}px`,
       backgroundImage: `url("${pack.sheet}")`,
