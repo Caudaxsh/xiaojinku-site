@@ -160,28 +160,31 @@ export function createPet() {
    * screen and must not cover the neighbouring box's text, so narrow phones and outer edges are skipped.
    */
   const WALL_AT = 107 / 112; // where the hands touch the wall, as a fraction of the frame width
+  const onScreen = (p) => { const top = p.top + layer.getBoundingClientRect().top; return top > 40 && top < innerHeight - 90; };
   function climbPlans() {
-    const here = platforms[on];
-    if (!sprite || !layer || !here || !can('climb') || !can('climb_over')) return [];
+    if (!sprite || !layer || !can('climb') || !can('climb_over')) return [];
     const view = layer.getBoundingClientRect();
-    const vis = new Set(visiblePlatforms());
     const out = [];
-    platforms.forEach((T, i) => {
-      if (!/^tile/.test(T.key) || T.bottom == null || !vis.has(i)) return;
-      if (here.top < T.bottom - 2 || here.top - T.bottom > 40) return;
-      if (T.right - T.left < 100) return;
-      const left = T.left - sprite.pw * WALL_AT;
-      const right = T.right - sprite.pw * (1 - WALL_AT);
-      if (view.left + left >= 2) out.push({ to: i, side: 'left', x: left });
-      if (view.left + right + sprite.pw <= innerWidth - 2) out.push({ to: i, side: 'right', x: right });
+    platforms.forEach((T, ti) => {
+      if (!/^tile/.test(T.key) || T.bottom == null || !onScreen(T) || T.right - T.left < 100) return;
+      // the platform just below this box: the pet starts its climb from there (it hops there first if needed)
+      platforms.forEach((P, pi) => {
+        if (pi === ti || P.top < T.bottom - 2 || P.top - T.bottom > 40 || !onScreen(P) || P.right - P.left < sprite.pw) return;
+        const left = T.left - sprite.pw * WALL_AT;
+        const right = T.right - sprite.pw * (1 - WALL_AT);
+        if (view.left + left >= 2) out.push({ from: pi, to: ti, side: 'left', x: left });
+        if (view.left + right + sprite.pw <= innerWidth - 2) out.push({ from: pi, to: ti, side: 'right', x: right });
+      });
     });
     return out;
   }
 
-  /** Walk to the gap, climb the side of the box, pull over the top edge and stand up there. */
+  /** Get to the platform below the box, walk to the gap, climb the side, pull over the top and stand up there. */
   async function climb(t, plan) {
-    const from = platforms[on]; const T = platforms[plan.to];
-    if (!from || !T) return;
+    const T = platforms[plan.to];
+    if (!platforms[plan.from] || !T) return;
+    if (on !== plan.from && !(await travel(plan.from, t, 'walk'))) return;
+    const from = platforms[on];
     const flip = plan.side === 'right';
     if (!(await walkTo(plan.x, t, 'walk'))) return;
     sprite.moveTo(plan.x, 0, from.top);
