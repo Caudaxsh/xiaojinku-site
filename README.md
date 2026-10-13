@@ -59,7 +59,7 @@ iPhone 用 Safari「加入主畫面」後，就能像 App 一樣全螢幕、離�
 
 PDF 在手機上直接解析（內建 pdf.js），做了這些防護：
 
-- **三種載入方式依序嘗試**：正常載入 → 把檔案重新包成 Blob 再載入（主機或瀏覽器拒絕檔案類型時）→ 完全不用 Web Worker（瀏覽器跑不起 Worker 時）。每一步 25 秒沒反應就換下一種。
+- **五種載入方式依序嘗試**：先用相容性最廣的 pdf.js 3.x（Web Worker → 不用 Worker），再用 pdf.js 6.x（正常 → 重新包成 Blob → 不用 Worker）。兩個版本讀出來的文字完全一樣（用 5 份不同的 PDF 比對過）。每一步 25 秒沒反應就換下一種。有一支 iPhone（iOS 18.7）上 6.x 一載入就出錯，所以 3.x 放在最前面。
 - **失敗時說明原因**：密碼保護、不是完整的 PDF、掃描圖片沒有文字、載入元件失敗，各有明確說明；畫面上有「複製診斷資訊」，貼給我就能查（含每一種方式的錯誤、瀏覽器版本）。
 - **用檔頭判斷是不是 PDF**，不看檔名。iPhone 的「檔案」有時會給沒有副檔名的檔案。
 - **缺字**：字型沒有的字（例如罕用字「瀕」）在 PDF 裡本來就是空白，不可能讀回來。會用「□」標記並在畫面上列出是哪一行，請在文字框補上。圓圈數字 ①② 則會依序補回。
@@ -110,4 +110,5 @@ node --test tests/parser.test.mjs tests/srs.test.mjs tests/brain.test.mjs
 | `js/icons.js` | 圖示系統（統一規格的 SVG 圖示元件） |
 | `icons.html` | 圖示展示頁，所有圖示、尺寸、色彩一覽 |
 | `docs/gpt-pdf-rules.md` | 給 GPT 的 PDF 規則（自動產生） |
-| `vendor/pdfjs/` | Mozilla pdf.js 6.3.289（Apache-2.0）。檔名用 `.js` 而不是 `.mjs`：有些主機會把 `.mjs` 當成非 JavaScript 而被瀏覽器拒絕載入 |
+| `vendor/pdfjs3/` | Mozilla pdf.js 3.11.174 legacy（Apache-2.0），最先使用 |
+| `vendor/pdfjs/` | Mozilla pdf.js 6.3.289（Apache-2.0），備用。檔名用 `.js` 而不是 `.mjs`：有些主機會把 `.mjs` 當成非 JavaScript 而被瀏覽器拒絕載入 |
