@@ -6,8 +6,8 @@
 
 export const REST_MS = [2200, 5200];
 export const MOVES = ['walk', 'run'];
-const COOLDOWN = { jump: 6000, run: 5000, think: 14000, sleep: 45000, wave: 60000, cheer: 20000, encourage: 30000 };
-const WEIGHTS = { walk: 24, run: 15, idle: 8, jump: 13, think: 12, sleep: 11, sit: 8, wave: 3 };
+const COOLDOWN = { jump: 6000, run: 5000, think: 14000, sleep: 45000, peek: 30000, wave: 60000, cheer: 20000, encourage: 30000 };
+const WEIGHTS = { walk: 24, run: 15, idle: 8, jump: 13, think: 12, sleep: 11, peek: 9, sit: 8, wave: 3 };
 export const TAP_BAG = ['wave', 'jump', 'card', 'think', 'run'];
 const MIN_SLEEP_SPAN = 56; // lying down needs room on the platform
 
@@ -41,13 +41,14 @@ export function createBrain({ rng = Math.random, now = () => Date.now() } = {}) 
 
     /**
      * Next autonomous action. ctx: { x, min, max (feet range on this platform), others (indices of
-     * other platforms in reach), can(type) — whether the character pack has that action }
+     * other platforms in reach), canPeek (the platform is a box that can hide the pet), can(type) — whether the character pack has that action }
      */
     next(ctx) {
       const can = ctx.can || (() => true);
       const span = ctx.max - ctx.min;
       const options = Object.entries(WEIGHTS).filter(([type]) => type !== last && ready(type) && can(type)
-        && (type !== 'sleep' || span >= MIN_SLEEP_SPAN));
+        && (type !== 'sleep' || span >= MIN_SLEEP_SPAN)
+        && (type !== 'peek' || ctx.canPeek)); // only behind boxes that have a solid face
       if (!options.length) return { type: mark('idle') };
       let roll = rng() * options.reduce((n, [, w]) => n + w, 0);
       let pick = options[options.length - 1][0];

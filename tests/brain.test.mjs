@@ -104,3 +104,13 @@ test('a pack with only idle + walk: never picks missing actions, taps stroll', (
   assert.equal(brain.react('done', can), null);
   assert.equal(brain.greet(can), null);
 });
+
+test('peeking only happens on a box that can hide the pet, and has a cooldown', () => {
+  let t = 1e9;
+  const brain = createBrain({ rng: seeded(31), now: () => t });
+  for (let i = 0; i < 200; i++) assert.notEqual(brain.next(ctx({ canPeek: false })).type, 'peek');
+  const times = [];
+  for (let i = 0; i < 500; i++) { t += 4000; if (brain.next(ctx({ canPeek: true })).type === 'peek') times.push(t); }
+  assert.ok(times.length > 3, `peeks: ${times.length}`);
+  times.slice(1).forEach((x, i) => assert.ok(x - times[i] >= 30000));
+});

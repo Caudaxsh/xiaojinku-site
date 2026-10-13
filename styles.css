@@ -386,3 +386,8 @@ body.studying .toast { bottom: calc(130px + var(--safe-bottom)); }
 .pet-card[hidden] { display: none; }
 
 .linkish { display: inline-flex; align-items: center; gap: 4px; color: var(--rust); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; font-size: inherit; }
+
+/* Boxes sit above the pet's layer while it peeks from behind one (the layer drops to z-index 0). */
+.tile, #view > .panel { position: relative; z-index: 1; }
+.pet-layer.behind { z-index: 0; }
+.pet-layer.behind .pet-shadow { display: none; }

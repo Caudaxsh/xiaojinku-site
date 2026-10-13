@@ -83,7 +83,7 @@ export function createPet() {
     platforms = measure();
     const p = platforms[on];
     if (!p) return rest();
-    const a = brain.next({ x: feetX(), min: p.left + EDGE, max: p.right - EDGE, can, others: visiblePlatforms() });
+    const a = brain.next({ x: feetX(), min: p.left + EDGE, max: p.right - EDGE, can, others: visiblePlatforms(), canPeek: /^(tile|panel)/.test(p.key) });
     perform(a);
   }
 
@@ -120,6 +120,34 @@ export function createPet() {
     return true;
   }
 
+  /**
+   * Rise from behind the top edge of a box, look around, sink back. The box is in front of the pet
+   * (the layer is lowered while this runs), so it hides the body: nothing needs to be drawn for it.
+   */
+  async function peek(t) {
+    const p = platforms[on];
+    const x = xOn(p, 0.15 + Math.random() * 0.7);
+    const hidden = sprite.ph * 0.95; // feet this far below the edge = fully hidden
+    const shown = Math.round(sprite.ph * 0.13); // chin and hands just above the edge
+    sprite.moveTo(feetX() - sprite.pw / 2, 0, p.top); // stand still where it is for a frame
+    layer.classList.add('behind');
+    sprite.moveTo(x, 0, p.top + hidden);
+    sprite.play('peek', { flip: Math.random() < 0.5 });
+    void sprite.el.offsetWidth; // commit the hidden position before animating
+    sprite.moveTo(x, 520, p.top + shown);
+    if (!(await wait(520 + 700, t))) { layer.classList.remove('behind'); return; }
+    sprite.play('peek', { flip: !sprite.flip });          // glance the other way
+    if (!(await wait(1100, t))) { layer.classList.remove('behind'); return; }
+    sprite.play('peek', { flip: !sprite.flip });
+    if (!(await wait(900, t))) { layer.classList.remove('behind'); return; }
+    sprite.moveTo(x, 420, p.top + hidden);
+    if (!(await wait(440, t))) { layer.classList.remove('behind'); return; }
+    layer.classList.remove('behind');
+    sprite.moveTo(x, 0, p.top); // pops up on top of the same box, standing
+    remember();
+    rest();
+  }
+
   async function perform(a) {
     if (!sprite) return;
     interrupt();
@@ -141,6 +169,10 @@ export function createPet() {
     if (a.type === 'jump' && can('jump')) {
       sprite.arc(Math.round(sprite.ph * 0.13), sprite.duration('jump'), [[0, 0], [0.19, 0], [0.36, 1], [0.6, 1], [0.77, 0], [1, 0]]);
       sprite.play('jump', { onDone: done });
+      return;
+    }
+    if (a.type === 'peek' && can('peek') && /^(tile|panel)/.test(platforms[on]?.key || '')) {
+      await peek(t);
       return;
     }
     if (a.type === 'card' && can('card')) {
