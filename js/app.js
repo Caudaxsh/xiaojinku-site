@@ -3,16 +3,19 @@ import * as srs from './srs.js';
 import { createStore } from './store.js';
 import { say, unlockAudio, lookupIpa } from './audio.js';
 import { icon, hydrateIcons } from './icons.js';
+import { createPet } from './pet/pet.js';
+import { readPackFile } from './pet/pack.js';
 
 const APP_NAME = 'Cash Volcab';
-const APP_VERSION = '2.2.0';
-const DEFAULT_SETTINGS = { newPerDay: 20, autoPlay: true };
+const APP_VERSION = '2.3.0';
+const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, pet: true, petQuiet: false };
 
 const S = {
   store: null,
   cards: [],
   settings: { ...DEFAULT_SETTINGS },
   days: [],
+  clock: srs.newClock(),
   newToday: { date: '', count: 0, bonus: 0 },
   tab: 'today',
   study: null,
@@ -21,6 +24,7 @@ const S = {
   lastImport: null,
 };
 
+const pet = createPet();
 const $ = (sel, root = document) => root.querySelector(sel);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -142,23 +146,24 @@ function remainingNew() {
   return Math.max(0, S.settings.newPerDay + n.bonus - n.count);
 }
 
+/** Which study day it is right now (a day only counts once you actually study). */
+const day = () => srs.currentDay(S.clock);
+
 function counts() {
-  const today = srs.todayStr();
   const fresh = S.cards.filter((c) => c.status === 'new');
   return {
     total: S.cards.length,
     fresh: fresh.length,
     freshToday: Math.min(fresh.length, remainingNew()),
-    due: S.cards.filter((c) => srs.isDue(c, today)).length,
+    due: S.cards.filter((c) => srs.isDue(c, day())).length,
     mastered: S.cards.filter((c) => c.status === 'mastered').length,
   };
 }
 
 function buildQueue() {
-  const today = srs.todayStr();
   const due = S.cards
-    .filter((c) => srs.isDue(c, today))
-    .sort((a, b) => a.due.localeCompare(b.due) || b.stars - a.stars);
+    .filter((c) => srs.isDue(c, day()))
+    .sort((a, b) => a.due - b.due || b.stars - a.stars);
   const fresh = S.cards
     .filter((c) => c.status === 'new')
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -168,6 +173,11 @@ function buildQueue() {
 
 async function markDay() {
   const today = srs.todayStr();
+  const ticked = srs.tickClock(S.clock, today);
+  if (ticked !== S.clock) {
+    S.clock = ticked;
+    await saveMeta('clock', S.clock);
+  }
   if (!S.days.includes(today)) {
     S.days = [...S.days, today].slice(-400);
     await saveMeta('days', S.days);
@@ -178,30 +188,29 @@ async function markDay() {
 function statusIcon(card) {
   if (card.status === 'new') return 'tag';
   if (card.status === 'mastered') return 'mastered';
-  return srs.isDue(card) ? 'due' : 'reviewing';
+  return srs.isDue(card, day()) ? 'due' : 'reviewing';
 }
 
-function dueLabel(card) {
-  if (card.status === 'new') return '待分級';
-  if (card.status === 'mastered') return card.stars === 1 ? '不需複習' : '已掌握';
-  const d = srs.daysBetween(srs.todayStr(), card.due);
-  if (d <= 0) return '今天複習';
-  if (d === 1) return '明天複習';
-  return `${d} 天後複習`;
-}
+const dueLabel = (card) => srs.dueText(card, day());
 
 /** Normalize cards saved by an older version so every field exists. */
-function upgradeCard(c) {
+function upgradeCard(c, studyDay = day()) {
   const out = {
     ipa: '', aiStars: 0, forms: [], compares: [], quick: '', synonyms: '', notes: '', memory: '', meaning: '', meaningMore: '',
     collocations: [], en: [], zh: [], extras: [],
     ...c,
   };
-  // Cards scheduled under the earlier, longer ladders move onto the current ones.
+  // Cards scheduled under earlier rules (calendar dates, longer ladders) move onto study days.
   if (out.status === 'active') {
     const ladder = srs.LADDERS[out.stars] || [];
     if (!ladder.length) Object.assign(out, { status: 'mastered', due: null, relearn: false });
-    else if (out.step > ladder.length - 1) out.step = ladder.length - 1;
+    else {
+      if (out.step > ladder.length - 1) out.step = ladder.length - 1;
+      if (typeof out.due !== 'number') {
+        const left = typeof out.due === 'string' ? Math.max(0, srs.daysBetween(srs.todayStr(), out.due)) : 0;
+        out.due = studyDay + Math.min(left, ladder[out.step]);
+      }
+    }
   }
   return out;
 }
@@ -289,6 +298,7 @@ function render() {
     if (on) t.setAttribute('aria-current', 'page');
     else t.removeAttribute('aria-current');
   });
+  if (S.study || S.tab !== 'today') pet.detach();
   if (S.study) return renderStudy();
   if (S.tab === 'library') return renderLibrary();
   if (S.tab === 'import') return renderImport();
@@ -310,9 +320,10 @@ const flag = (k) => { try { return localStorage.getItem(k) === '1'; } catch { re
 const setFlag = (k) => { try { localStorage.setItem(k, '1'); } catch { /* ignore */ } };
 
 const RULES = `
-  <div class="rule">${starsHtml(3)}<p><b>最重要</b>（口說必備）：第 5 天、第 10 天各複習一次</p></div>
-  <div class="rule">${starsHtml(2)}<p><b>重要</b>：第 10 天複習一次</p></div>
-  <div class="rule">${starsHtml(1)}<p><b>艱深少用</b>：學過這一次就好，不再安排複習</p></div>`;
+  <div class="rule">${starsHtml(3)}<p><b>最重要</b>（口說必備）：第 3 個學習日再複習一次，那張卡會變成深色卡</p></div>
+  <div class="rule">${starsHtml(2)}<p><b>重要</b>：下次學習時看過這一次就好</p></div>
+  <div class="rule">${starsHtml(1)}<p><b>艱深少用</b>：下次學習時看過這一次就好</p></div>
+  <p class="muted small" style="margin-top:8px">匯入的單字會在你「下一次開始學習」時出現。有學習的那一天才算一個學習日，哪天沒學，所有複習就整體順延。</p>`;
 
 /* ---------------------------------------------------------------- today */
 
@@ -352,6 +363,7 @@ function renderToday() {
       <div><p class="eyebrow">${now.getMonth() + 1} 月 ${now.getDate()} 日</p><h1>${APP_NAME}</h1></div>
       <div class="streak">${icon('trophy', { size: 22 })}<b>${srs.streak(S.days)}</b><span>連續天數</span></div>
     </div>
+    ${pet.active() ? '<div class="pet-stage" id="pet-stage"></div>' : ''}
     <div class="tiles">
       <div class="tile ${c.freshToday ? 'hot' : ''}">${icon('today', { size: 22 })}<div class="num">${c.freshToday}</div><div class="lbl">今日新字</div></div>
       <div class="tile ${c.due ? 'hot' : ''}">${icon('due', { size: 22 })}<div class="num">${c.due}</div><div class="lbl">待複習</div></div>
@@ -372,6 +384,7 @@ function renderToday() {
       <h2 class="ic-label">${icon('difficulty', { size: 18 })}星級複習規則</h2>
       ${RULES}
     </div>`);
+  pet.attach($('#pet-stage'));
 }
 
 /* ---------------------------------------------------------------- study */
@@ -415,17 +428,21 @@ function renderStudy(animate = '') {
   const total = st.queue.length;
   const pct = Math.round((st.i / total) * 100);
 
+  // A card that comes back for its follow-up review is drawn dark on the front.
+  const second = !st.practice && srs.isSecondReview(card);
   const badge = st.practice
     ? '<span class="chip quiet">練習</span>'
     : entry.retry
       ? '<span class="chip quiet">再看一次</span>'
-      : card.status === 'new' ? '<span class="chip">NEW</span>' : starsHtml(card.stars);
+      : second
+        ? `<span class="chip gold">${icon('reviewing', { size: 13 })}第 2 次複習</span>`
+        : card.status === 'new' ? '<span class="chip">NEW</span>' : starsHtml(card.stars);
 
   let face;
   let nav = '';
   if (!st.flipped) {
     face = `
-      <article class="card front ${animate}" id="card" data-act="flip">
+      <article class="card front ${second ? 'review2' : ''} ${animate}" id="card" data-act="flip">
         <div class="card-top">${badge}<span class="muted small">點卡片翻面</span></div>
         <div class="headword">
           <h1 class="word">${esc(card.word)}</h1>
@@ -488,13 +505,13 @@ function actionBar() {
     return `
       <p class="ask"><b>這個字對你的重要性？</b></p>
       <div class="pick-grid">
-        <button class="pick-btn s3" data-act="rate-new" data-stars="3">${starsHtml(3)}<b>最重要</b><small>第 5、10 天複習</small></button>
-        <button class="pick-btn" data-act="rate-new" data-stars="2">${starsHtml(2)}<b>重要</b><small>第 10 天複習</small></button>
-        <button class="pick-btn" data-act="rate-new" data-stars="1">${starsHtml(1)}<b>艱深少用</b><small>不再複習</small></button>
+        <button class="pick-btn s3" data-act="rate-new" data-stars="3">${starsHtml(3)}<b>最重要</b><small>第 3 個學習日再複習</small></button>
+        <button class="pick-btn" data-act="rate-new" data-stars="2">${starsHtml(2)}<b>重要</b><small>看過這次就好</small></button>
+        <button class="pick-btn" data-act="rate-new" data-stars="1">${starsHtml(1)}<b>艱深少用</b><small>看過這次就好</small></button>
       </div>`;
   }
 
-  const hint = (g) => srs.previewInterval(card, g);
+  const hint = (g) => srs.previewInterval(card, g, day());
   return `
     <div class="grade-grid">
       <button class="grade-btn again" data-act="grade" data-grade="again"><b>忘了</b><small>${hint('again')}</small></button>
@@ -540,7 +557,7 @@ async function withLock(fn) {
 
 const rateNew = (stars) => withLock(async () => {
   const { card } = studyEntry();
-  await saveCards([srs.firstRating(card, stars)]);
+  await saveCards([srs.firstRating(card, stars, day())]);
   const n = newState();
   n.count += 1;
   await saveMeta('newToday', n);
@@ -551,7 +568,7 @@ const rateNew = (stars) => withLock(async () => {
 
 const gradeCard = (grade) => withLock(async () => {
   const { card } = studyEntry();
-  await saveCards([srs.review(card, grade)]);
+  await saveCards([srs.review(card, grade, day())]);
   await markDay();
   S.study.stats[grade] += 1;
   if (grade === 'again') S.study.queue.push({ id: card.id, retry: true });
@@ -566,7 +583,7 @@ function retryCard(again) {
 
 async function adjustStars(stars) {
   const { card } = studyEntry();
-  await saveCards([srs.changeStars(card, stars)]);
+  await saveCards([srs.changeStars(card, stars, day())]);
   $('#actionbar').innerHTML = actionBar();
   if (stars === 1) toast('改成 ★：這個字之後不再安排複習');
 }
@@ -577,6 +594,11 @@ function renderDone() {
   const newCount = r.newRated[1] + r.newRated[2] + r.newRated[3];
   const reviewed = r.again + r.good + r.easy;
   const c = counts();
+  if (!st.practice && !st.announced) {
+    st.announced = true;
+    const total = r.again + r.good + r.easy + newCount;
+    pet.emit(total && r.again / total > 0.4 ? 'again' : 'done');
+  }
   const summary = st.practice
     ? `<div class="sum">${icon('stats', { size: 22 })}<div><b>${r.seen}</b>張練習</div></div>`
     : `<div class="sum">${icon('stats', { size: 22 })}<div><b>${newCount}</b>新字分級</div><div><b>${reviewed}</b>複習</div><div><b>${r.again}</b>忘記</div></div>`;
@@ -610,7 +632,7 @@ const FILTERS = [
 
 function matchFilter(c, filter) {
   if (filter === 'new') return c.status === 'new';
-  if (filter === 'due') return srs.isDue(c);
+  if (filter === 'due') return srs.isDue(c, day());
   if (filter === 'mastered') return c.status === 'mastered';
   if (filter === 'all') return true;
   return c.stars === Number(filter) && c.status !== 'new';
@@ -825,6 +847,7 @@ async function doImport() {
   S.lastImport = { date: srs.todayStr(), added: addedIds, updated: previous };
   await saveMeta('lastImport', S.lastImport);
   S.imp = { text: '', result: null, status: '' };
+  pet.emit('done');
   const perDay = S.settings.newPerDay;
   toast(`已匯入：新增 ${added}${updated ? `、更新 ${updated}` : ''}${added > perDay ? `（每天出 ${perDay} 個新字）` : ''}`);
   go('today');
@@ -880,6 +903,28 @@ async function storageLine() {
   }
 }
 
+function petPanel() {
+  const p = pet.pack;
+  return `
+    <div class="panel">
+      <h2>首頁寵物</h2>
+      <div class="set-row">
+        <div><b>顯示寵物</b><p>${p ? `角色：${esc(p.name || '未命名')}・${Object.keys(p.clips).length} 組動作` : '還沒有載入角色素材'}</p></div>
+        <button class="switch" role="switch" aria-checked="${S.settings.pet}" data-act="toggle-pet" aria-label="顯示寵物"${p ? '' : ' disabled'}></button>
+      </div>
+      <div class="set-row">
+        <div><b>安靜模式</b><p>寵物不再自己走動，只在你點牠時反應</p></div>
+        <button class="switch" role="switch" aria-checked="${S.settings.petQuiet}" data-act="toggle-pet-quiet" aria-label="寵物安靜模式"${p ? '' : ' disabled'}></button>
+      </div>
+      <p class="muted small" style="margin-top:8px">角色素材是一個檔案（.petpack.json），只存在這支手機裡，不會放到網站上。系統設定開啟「減少動態效果」時，寵物只會靜靜坐著。</p>
+      <div class="btn-row" style="margin-top:12px">
+        <label class="btn" for="pet-file">${icon('upload', { size: 18 })}${p ? '更換' : '載入'}角色素材</label>
+        <input id="pet-file" type="file" accept="application/json,.json" hidden>
+        ${p ? `<a class="btn" href="pet.html">${icon('reviewing', { size: 18 })}預覽所有動作</a><button class="btn danger" data-act="pet-remove">${icon('trash', { size: 18 })}移除素材</button>` : ''}
+      </div>
+    </div>`;
+}
+
 function renderSettings() {
   setView(`
     <div class="page-head"><h1>設定</h1><p class="sub">${APP_NAME} v${APP_VERSION}</p></div>
@@ -897,6 +942,7 @@ function renderSettings() {
       <h2 class="ic-label">${icon('difficulty', { size: 18 })}星級複習規則</h2>
       ${RULES}
     </div>
+    ${petPanel()}
     <div class="panel">
       <h2>單字存在哪裡？</h2>
       <ul class="facts">
@@ -924,7 +970,7 @@ function renderSettings() {
 }
 
 function exportBackup() {
-  const data = { app: 'xiaojinku-vocab', version: 2, exportedAt: new Date().toISOString(), settings: S.settings, days: S.days, cards: S.cards };
+  const data = { app: 'xiaojinku-vocab', version: 2, exportedAt: new Date().toISOString(), settings: S.settings, days: S.days, clock: S.clock, cards: S.cards };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -941,6 +987,7 @@ async function restoreBackup(file) {
   try {
     const data = JSON.parse(await file.text());
     if (!Array.isArray(data.cards)) throw new Error('bad file');
+    if (data.clock && typeof data.clock.count === 'number') { S.clock = data.clock; await saveMeta('clock', S.clock); }
     const cards = data.cards.filter((c) => c && c.id && c.word && Array.isArray(c.en) && Array.isArray(c.zh)).map(upgradeCard);
     await saveCards(cards);
     if (data.settings) { S.settings = { ...DEFAULT_SETTINGS, ...data.settings }; await saveMeta('settings', S.settings); }
@@ -949,6 +996,19 @@ async function restoreBackup(file) {
     render();
   } catch {
     toast('這不是有效的備份檔');
+  }
+}
+
+async function loadPetFile(file) {
+  if (!file) return;
+  try {
+    const pack = await readPackFile(file);
+    await S.store.setMeta('petpack', pack);
+    pet.setPack(pack);
+    toast(`已載入角色素材：${pack.name || ''}`);
+    renderSettings();
+  } catch (err) {
+    toast(`這不是有效的角色素材檔（${err.message}）`);
   }
 }
 
@@ -994,7 +1054,7 @@ const actions = {
   'close-sheet': closeSheet,
   'sheet-stars': async (el) => {
     const c = cardById(el.dataset.id);
-    await saveCards([srs.changeStars(c, Number(el.dataset.stars))]);
+    await saveCards([srs.changeStars(c, Number(el.dataset.stars), day())]);
     openCardSheet(c.id);
     if (S.tab === 'library' && $('#lib-list')) $('#lib-list').innerHTML = listHtml();
   },
@@ -1039,6 +1099,25 @@ const actions = {
     await saveMeta('settings', S.settings);
     renderSettings();
   },
+  'toggle-pet': async (el) => {
+    S.settings.pet = !S.settings.pet;
+    pet.enabled = S.settings.pet;
+    el.setAttribute('aria-checked', String(S.settings.pet));
+    await saveMeta('settings', S.settings);
+  },
+  'toggle-pet-quiet': async (el) => {
+    S.settings.petQuiet = !S.settings.petQuiet;
+    pet.quiet = S.settings.petQuiet;
+    el.setAttribute('aria-checked', String(S.settings.petQuiet));
+    await saveMeta('settings', S.settings);
+  },
+  'pet-remove': async (el) => {
+    if (!armed(el, '再按一次，移除角色素材')) return;
+    await saveMeta('petpack', null);
+    pet.setPack(null);
+    toast('已移除角色素材');
+    renderSettings();
+  },
   'toggle-autoplay': async (el) => {
     S.settings.autoPlay = !S.settings.autoPlay;
     el.setAttribute('aria-checked', String(S.settings.autoPlay));
@@ -1062,8 +1141,10 @@ const actions = {
     const reset = S.cards.map((c) => ({ ...c, stars: 0, status: 'new', step: 0, relearn: false, due: null, reps: 0, lapses: 0, lastReviewed: null }));
     await saveCards(reset);
     S.days = [];
+    S.clock = srs.newClock();
     S.newToday = { date: '', count: 0, bonus: 0 };
     await saveMeta('days', S.days);
+    await saveMeta('clock', S.clock);
     await saveMeta('newToday', S.newToday);
     newState();
     toast(`已重設 ${reset.length} 個單字的學習進度`);
@@ -1072,7 +1153,8 @@ const actions = {
   wipe: async (el) => {
     if (!armed(el, '再按一次，確認清除全部資料（無法復原）')) return;
     await S.store.clear();
-    S.cards = []; S.days = []; S.settings = { ...DEFAULT_SETTINGS }; S.newToday = { date: '', count: 0, bonus: 0 }; S.lastImport = null;
+    if (pet.pack) await saveMeta('petpack', pet.pack);
+    S.cards = []; S.days = []; S.clock = srs.newClock(); S.settings = { ...DEFAULT_SETTINGS }; S.newToday = { date: '', count: 0, bonus: 0 }; S.lastImport = null;
     toast('已清除');
     render();
   },
@@ -1096,6 +1178,7 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   if (e.target.id === 'imp-file') { readFileInto(e.target.files[0]); e.target.value = ''; }
   if (e.target.id === 'restore-file') { restoreBackup(e.target.files[0]); e.target.value = ''; }
+  if (e.target.id === 'pet-file') { loadPetFile(e.target.files[0]); e.target.value = ''; }
 });
 
 document.addEventListener('keydown', (e) => {
@@ -1127,7 +1210,8 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
 async function boot() {
   S.store = await createStore();
   try {
-    S.cards = (await S.store.getAll()).map(upgradeCard);
+    S.clock = (await S.store.getMeta('clock')) || srs.newClock();
+    S.cards = (await S.store.getAll()).map((c) => upgradeCard(c));
     S.settings = { ...DEFAULT_SETTINGS, ...((await S.store.getMeta('settings')) || {}) };
     S.days = (await S.store.getMeta('days')) || [];
     S.newToday = (await S.store.getMeta('newToday')) || S.newToday;
@@ -1136,6 +1220,14 @@ async function boot() {
     toast('讀取資料時發生問題');
   }
   newState();
+  await pet.init(S.store);
+  pet.enabled = S.settings.pet !== false;
+  pet.quiet = Boolean(S.settings.petQuiet);
+  pet.getWord = () => {
+    const pool = buildQueue().map((e) => cardById(e.id)).filter(Boolean);
+    const list = pool.length ? pool : S.cards;
+    return list.length ? list[Math.floor(Math.random() * list.length)].word.replace(/\s*[（(].*$/, '') : null;
+  };
   hydrateIcons();
   render();
   navigator.storage?.persist?.().catch(() => {});

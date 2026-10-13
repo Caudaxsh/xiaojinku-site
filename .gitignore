@@ -1,0 +1,3 @@
+# Character art is private (fan art of a copyrighted character): never commit it.
+private/
+*.petpack.json

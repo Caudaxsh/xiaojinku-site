@@ -1,82 +1,105 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newCard, firstRating, review, changeStars, isDue, addDays, previewInterval, streak } from '../js/srs.js';
+import {
+  newCard, firstRating, review, changeStars, isDue, previewInterval, streak,
+  newClock, currentDay, tickClock, dueText, isSecondReview,
+} from '../js/srs.js';
 
-const D0 = '2026-10-12';
-const base = () => newCard({ id: 'x', word: 'x' }, D0);
+const base = () => newCard({ id: 'x', word: 'x' }, '2026-10-12');
 
-/** Review with "good" until mastered; return the dates it was due. */
-function walk(card) {
-  const dates = [];
-  let c = card;
-  while (c.status === 'active') {
-    dates.push(c.due);
-    c = review(c, 'good', c.due);
-  }
-  return { dates, final: c };
+/** Simulate calendar days: only days on which something is studied advance the clock. */
+function studyOn(clock, date) {
+  return tickClock(clock, date);
 }
 
-test('new card is not due until it has been rated', () => {
-  assert.equal(isDue(base(), D0), false);
+test('study-day clock: only days with study advance it', () => {
+  let clock = newClock();
+  assert.equal(currentDay(clock, '2026-10-12'), 1);
+  clock = studyOn(clock, '2026-10-12');
+  assert.equal(currentDay(clock, '2026-10-12'), 1); // same day, still day 1
+  assert.equal(currentDay(clock, '2026-10-13'), 2); // tomorrow would be day 2
+  // Nothing studied on 10-13 and 10-14: the counter has not moved.
+  assert.equal(currentDay(clock, '2026-10-15'), 2);
+  clock = studyOn(clock, '2026-10-15');
+  assert.equal(currentDay(clock, '2026-10-15'), 2);
+  assert.equal(clock.count, 2);
 });
 
-test('3 stars: reviewed on day 5 and day 10, then mastered', () => {
-  const { dates, final } = walk(firstRating(base(), 3, D0));
-  assert.deepEqual(dates, [addDays(D0, 5), addDays(D0, 10)]);
-  assert.equal(final.status, 'mastered');
+test('a new card is not due until it has been rated', () => {
+  assert.equal(isDue(base(), 99), false);
 });
 
-test('2 stars: reviewed once on day 10, then mastered', () => {
-  const { dates, final } = walk(firstRating(base(), 2, D0));
-  assert.deepEqual(dates, [addDays(D0, 10)]);
-  assert.equal(final.status, 'mastered');
-});
-
-test('1 star: no further review at all', () => {
-  const c = firstRating(base(), 1, D0);
-  assert.equal(c.status, 'mastered');
-  assert.equal(c.due, null);
-  assert.equal(isDue(c, addDays(D0, 400)), false);
-});
-
-test('forgetting brings it back tomorrow, then resumes the same interval', () => {
-  let c = firstRating(base(), 3, D0);
-  const day5 = c.due;
-  c = review(c, 'again', day5);
-  assert.equal(c.due, addDays(day5, 1));
-  assert.equal(c.lapses, 1);
-  c = review(c, 'good', c.due);
-  assert.equal(c.relearn, false);
-  assert.equal(c.due, addDays(day5, 1 + 5));
-  // The forgotten review is redone, so both scheduled reviews still happen.
-  c = review(c, 'good', c.due);
+test('3 stars: reviewed again on the 3rd study day after the first study', () => {
+  const c = firstRating(base(), 3, 1);
   assert.equal(c.status, 'active');
-  assert.equal(c.due, addDays(day5, 1 + 5 + 5));
-  c = review(c, 'good', c.due);
+  assert.equal(c.due, 4);
+  assert.equal(isDue(c, 2), false);
+  assert.equal(isDue(c, 3), false);
+  assert.equal(isDue(c, 4), true);
+  assert.equal(isSecondReview(c), true);
+  const done = review(c, 'good', 4);
+  assert.equal(done.status, 'mastered');
+  assert.equal(done.due, null);
+});
+
+test('skipped calendar days do not move the schedule', () => {
+  let clock = studyOn(newClock(), '2026-10-12'); // day 1: learn
+  const c = firstRating(base(), 3, currentDay(clock, '2026-10-12'), '2026-10-12');
+  clock = studyOn(clock, '2026-10-13'); // day 2
+  // Two weeks off.
+  const back = currentDay(clock, '2026-10-27'); // day 3 when you come back
+  assert.equal(back, 3);
+  assert.equal(isDue(c, back), false);
+  clock = studyOn(clock, '2026-10-27');
+  clock = studyOn(clock, '2026-10-28'); // day 4
+  assert.equal(isDue(c, currentDay(clock, '2026-10-28')), true);
+});
+
+test('2 stars and 1 star finish after the first study', () => {
+  for (const stars of [2, 1]) {
+    const c = firstRating(base(), stars, 1);
+    assert.equal(c.status, 'mastered');
+    assert.equal(c.due, null);
+    assert.equal(isDue(c, 999), false);
+    assert.equal(isSecondReview(c), false);
+  }
+});
+
+test('forgetting brings it back at the next study, then resumes the same interval', () => {
+  let c = firstRating(base(), 3, 1);
+  c = review(c, 'again', 4);
+  assert.equal(c.due, 5);
+  assert.equal(c.lapses, 1);
+  assert.equal(c.relearn, true);
+  c = review(c, 'good', 5);
+  assert.equal(c.relearn, false);
+  assert.equal(c.due, 8);
+  assert.equal(c.status, 'active');
+  c = review(c, 'good', 8);
   assert.equal(c.status, 'mastered');
 });
 
-test('easy on the first 3-star review finishes the word', () => {
-  const c = review(firstRating(base(), 3, D0), 'easy', addDays(D0, 5));
+test('easy on the follow-up review finishes the word', () => {
+  const c = review(firstRating(base(), 3, 1), 'easy', 4);
   assert.equal(c.status, 'mastered');
 });
 
-test('changing stars: to 1 star retires, mastered word to 3 stars comes back', () => {
-  const active = firstRating(base(), 3, D0);
-  assert.equal(changeStars(active, 1, D0).status, 'mastered');
-  const back = changeStars(firstRating(base(), 1, D0), 3, D0);
+test('changing stars: to 1 star retires, a mastered word moved to 3 stars comes back', () => {
+  const active = firstRating(base(), 3, 1);
+  assert.equal(changeStars(active, 1, 2).status, 'mastered');
+  const back = changeStars(firstRating(base(), 1, 1), 3, 2);
   assert.equal(back.status, 'active');
-  assert.equal(back.due, addDays(D0, 5));
-  const two = changeStars(active, 2, D0);
-  assert.equal(two.status, 'active');
-  assert.equal(two.due, addDays(D0, 5));
+  assert.equal(back.due, 5);
+  assert.equal(changeStars(active, 2, 2).status, 'mastered');
 });
 
-test('interval preview and streak', () => {
-  const c = firstRating(base(), 3, D0);
-  assert.equal(previewInterval(c, 'again', c.due), '明天');
-  assert.equal(previewInterval(c, 'good', c.due), '5 天後');
-  assert.equal(previewInterval(c, 'easy', c.due), '已掌握');
+test('interval preview, due text and streak', () => {
+  const c = firstRating(base(), 3, 1);
+  assert.equal(previewInterval(c, 'again', 4), '下次學習');
+  assert.equal(previewInterval(c, 'good', 4), '已掌握');
+  assert.equal(dueText(c, 1), '再 3 個學習日複習');
+  assert.equal(dueText(c, 3), '下次學習複習');
+  assert.equal(dueText(c, 4), '今天複習');
   assert.equal(streak(['2026-10-12', '2026-10-11', '2026-10-10', '2026-10-08'], '2026-10-12'), 3);
   assert.equal(streak(['2026-10-11'], '2026-10-12'), 1);
   assert.equal(streak([], '2026-10-12'), 0);
