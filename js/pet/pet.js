@@ -19,6 +19,7 @@ export function createPet() {
   let homeKey = null; let homeOffset = 0.5; // remembered across re-renders
   let token = 0; let timer = 0; let visible = true; let lastTouch = Date.now();
   let pending = null; let ro = null; let io = null;
+  let firstVisit = true; // the first time the page shows the pet: random spot, random first move
 
   const wait = (ms, t) => new Promise((resolve) => { timer = setTimeout(() => resolve(t === token), ms); });
   const supported = () => Boolean(pet.pack && pet.enabled);
@@ -80,12 +81,12 @@ export function createPet() {
       .map(({ i }) => i);
   }
 
-  function decide(t) {
+  function decide(t, opening = false) {
     if (t !== token || !sprite || !visible) return;
     platforms = measure();
     const p = platforms[on];
     if (!p) return rest();
-    const a = brain.next({
+    const a = (opening ? brain.start : brain.next).call(brain, {
       x: feetX(), min: lowFeet(p), max: p.right - EDGE, can, others: visiblePlatforms(),
       canPeek: /^(tile|panel)/.test(p.key), canPeekTitle: titleIndex() >= 0, canClimb: climbPlans().length > 0,
     });
@@ -226,7 +227,7 @@ export function createPet() {
     }
     if (a.type === 'sleep' && can('sleep')) {
       sprite.play('sleep');
-      if (await wait(9000 + Math.random() * 8000, t)) done(); // naps, then wakes up by itself
+      if (await wait(brain.holdFor('sleep'), t)) done(); // a long nap, then wakes up by itself
       return;
     }
     if (a.type === 'jump' && can('jump')) {
@@ -253,8 +254,14 @@ export function createPet() {
       if (await wait(3600, t)) done();
       return;
     }
+    if (a.type === 'think' && can('think')) { // keeps thinking: replay the clip until the hold time is up
+      const end = Date.now() + brain.holdFor('think');
+      const again = () => { if (t !== token) return; if (Date.now() >= end) return done(); sprite.play('think', { onDone: again }); };
+      again();
+      return;
+    }
     if (can(a.type) && !['idle', 'sit'].includes(a.type)) { sprite.play(a.type, { onDone: done }); return; }
-    if (a.type === 'sit' && can('sit')) { sprite.play('sit'); if (await wait(3000 + Math.random() * 3000, t)) done(); return; }
+    if (a.type === 'sit' && can('sit')) { sprite.play('sit'); if (await wait(brain.holdFor('sit'), t)) done(); return; }
     rest();
   }
 
@@ -308,14 +315,26 @@ export function createPet() {
       sprite.el.setAttribute('aria-label', '寵物，點一下互動');
       sprite.el.addEventListener('pointerdown', (e) => { e.preventDefault(); onTap(); });
       sprite.el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTap(); } });
+      let opening = false;
+      if (firstVisit) {
+        firstVisit = false; opening = true;
+        const ps = measure();
+        if (ps.length) { homeKey = ps[Math.floor(Math.random() * ps.length)].key; homeOffset = Math.random(); }
+      }
       place();
-      ro = new ResizeObserver(() => { if (!sprite) return; interrupt(); remember(); place(); rest(); });
+      let roFirst = true; // observe() reports once on start; that is not a real resize
+      ro = new ResizeObserver(() => { if (roFirst) { roFirst = false; return; } if (!sprite) return; interrupt(); remember(); place(); rest(); });
       ro.observe(host);
       touch();
       brain.reset();
       sprite.play('idle');
       if (reduceMotion()) { sprite.show(pet.pack.clips.idle.seq[0][0]); return; }
       if (pending) { const ev = pending; pending = null; const a = brain.react(ev, can); if (a) { perform({ type: a }); return; } }
+      if (opening && !pet.quiet && visible) {
+        const t = token;
+        wait(500 + Math.random() * 2000, t).then((ok) => { if (ok) decide(t, true); });
+        return;
+      }
       rest();
     },
 

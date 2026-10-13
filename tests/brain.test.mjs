@@ -126,3 +126,27 @@ test('title peek and climbing only happen where the page allows them', () => {
   for (let i = 0; i < 600; i++) seen.add(brain.next(ctx({ canPeek: true, canPeekTitle: true, canClimb: true })).type);
   for (const k of ['peek', 'peek_title', 'climb']) assert.ok(seen.has(k), `${k} never chosen: ${[...seen]}`);
 });
+
+test('calm actions never follow each other, and they last long with long pauses after', async () => {
+  const { CALM, HOLD_MS } = await import('../js/pet/brain.js');
+  let t = 0;
+  const brain = createBrain({ rng: seeded(11), now: () => (t += 60000) });
+  let prev = null;
+  for (let i = 0; i < 500; i++) {
+    const a = brain.next(ctx());
+    assert.ok(!(CALM.includes(prev) && CALM.includes(a.type)), `${prev} -> ${a.type}`);
+    if (CALM.includes(a.type)) assert.ok(brain.restFor() >= 5500, 'long pause after a calm action');
+    prev = a.type;
+  }
+  for (const k of ['think', 'sleep']) {
+    const h = brain.holdFor(k);
+    assert.ok(h >= HOLD_MS[k][0] && h <= HOLD_MS[k][1]);
+  }
+  assert.ok(HOLD_MS.think[0] >= 9000 && HOLD_MS.sleep[0] >= 20000);
+});
+
+test('every visit differs: different seeds give different opening moves', () => {
+  const seen = new Set();
+  for (let s = 1; s < 60; s++) seen.add(createBrain({ rng: seeded(s), now: () => 1e9 }).start(ctx()).type);
+  assert.ok(seen.size >= 5, [...seen].join());
+});
