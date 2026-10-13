@@ -70,3 +70,15 @@ test('pack validation', () => {
   assert.ok(validatePack({ ...good, clips: { idle: { mode: 'loop', seq: [[9, 100]] } } }));
   assert.ok(validatePack(null));
 });
+
+test('a pack with only idle + walk: never picks missing actions, taps stroll', () => {
+  const brain = createBrain({ rng: seeded(9), now: () => 1e9 });
+  const can = (type) => type === 'walk';
+  for (let i = 0; i < 200; i++) {
+    const a = brain.next(ctx({ can, idleFor: SLEEP_AFTER_MS * 2 }));
+    assert.ok(['walk', 'idle'].includes(a.type), a.type);
+  }
+  assert.equal(brain.tap(can), 'walk');
+  assert.equal(brain.react('done', can), null);
+  assert.equal(brain.greet(can), null);
+});

@@ -24,6 +24,9 @@ export function createPet() {
   const clamp = (v) => { const b = bounds(); return Math.max(b.min, Math.min(b.max, v)); };
   const wait = (ms, t) => new Promise((resolve) => { timer = setTimeout(() => resolve(t === token), ms); });
   const supported = () => Boolean(pet.pack && pet.enabled);
+  // 'idle'/'sit' are rest poses; everything else must exist in the pack to be chosen
+  const can = (type) => Boolean(sprite && sprite.has(type));
+  const randomSpot = () => { const b = bounds(); const span = b.max - b.min; let t = b.min + Math.random() * span; if (Math.abs(t - x) < span / 3) t = x < b.min + span / 2 ? b.max - Math.random() * span * 0.2 : b.min + Math.random() * span * 0.2; return t; };
 
   function interrupt() { token += 1; clearTimeout(timer); timer = 0; }
 
@@ -41,7 +44,7 @@ export function createPet() {
   function decide(t) {
     if (t !== token || !sprite || !visible) return;
     const b = bounds();
-    const a = brain.next({ idleFor: Date.now() - lastTouch, x, min: b.min, max: b.max });
+    const a = brain.next({ idleFor: Date.now() - lastTouch, x, min: b.min, max: b.max, can });
     perform(a);
   }
 
@@ -71,7 +74,7 @@ export function createPet() {
         sprite.play('jump', { onDone: done });
         return undefined;
       case 'sleep':
-        sprite.play(sprite.has('sleep') ? 'sleep' : 'sit'); // stays until the next interaction
+        sprite.play(['sleep', 'sit', 'idle'].find((n) => sprite.has(n))); // stays until the next interaction
         return undefined;
       case 'card': {
         if (!sprite.has('card')) return done();
@@ -96,7 +99,8 @@ export function createPet() {
   function onTap() {
     touch();
     if (reduceMotion()) { perform({ type: 'card' }); return; }
-    perform({ type: brain.tap() });
+    const t = brain.tap(can);
+    perform(t === 'walk' ? { type: 'walk', x: randomSpot() } : { type: t });
   }
 
   function setVisible(v) {
@@ -146,8 +150,8 @@ export function createPet() {
       touch();
       brain.reset();
       if (reduceMotion()) { sprite.show(pet.pack.clips.sit ? pet.pack.clips.sit.seq[0][0] : pet.pack.clips.idle.seq[0][0]); return; }
-      if (pending) { const ev = pending; pending = null; const a = brain.react(ev); if (a) { perform({ type: a }); return; } }
-      if (greetToday()) { perform({ type: brain.greet() }); return; }
+      if (pending) { const ev = pending; pending = null; const a = brain.react(ev, can); if (a) { perform({ type: a }); return; } }
+      if (can('wave') && greetToday()) { perform({ type: brain.greet(can) }); return; }
       rest('idle');
     },
 
@@ -162,12 +166,12 @@ export function createPet() {
     emit(event) {
       const ev = event === 'imported' ? 'done' : event;
       if (!sprite) { if (supported()) pending = ev; return; }
-      const a = brain.react(ev);
+      const a = brain.react(ev, can);
       if (a) { touch(); perform({ type: a }); }
     },
 
     /** Used by the preview page and settings. */
-    play(name) { if (sprite) { touch(); perform({ type: name }); } },
+    play(name) { if (sprite) { touch(); perform(name === 'walk' ? { type: 'walk', x: randomSpot() } : { type: name }); } },
     get sprite() { return sprite; },
   });
 

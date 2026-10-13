@@ -21,11 +21,16 @@ export function createBrain({ rng = Math.random, now = () => Date.now() } = {}) 
     /** How long to rest before the next autonomous action. */
     restFor: () => between(REST_MS),
 
-    /** Next autonomous action. ctx: { idleFor (ms since the last interaction), x, min, max } */
+    /**
+     * Next autonomous action. ctx: { idleFor (ms since the last interaction), x, min, max,
+     * can(type) — whether the character pack has that action; missing actions are never picked }
+     */
     next(ctx) {
-      if (ctx.idleFor >= SLEEP_AFTER_MS && last !== 'sleep') return { type: mark('sleep') };
+      const can = ctx.can || (() => true);
+      if (can('sleep') && ctx.idleFor >= SLEEP_AFTER_MS && last !== 'sleep') return { type: mark('sleep') };
       if (last === 'sleep') return { type: 'sleep' }; // stays asleep until someone interacts
-      const options = Object.entries(WEIGHTS).filter(([type]) => type !== last && ready(type));
+      const options = Object.entries(WEIGHTS).filter(([type]) => type !== last && ready(type) && can(type));
+      if (!options.length) return { type: mark('idle') };
       let roll = rng() * options.reduce((n, [, w]) => n + w, 0);
       let pick = options[options.length - 1][0];
       for (const [type, w] of options) { roll -= w; if (roll <= 0) { pick = type; break; } }
@@ -40,24 +45,27 @@ export function createBrain({ rng = Math.random, now = () => Date.now() } = {}) 
     },
 
     /** A tap: wake up with a wave, otherwise cycle through reactions without repeating. */
-    tap() {
-      if (last === 'sleep') { last = null; return mark('wave'); }
+    tap(can = () => true) {
+      const pool = TAP_BAG.filter(can);
+      if (!pool.length) return mark('walk'); // a pack with no reactions: stroll somewhere else
+      if (last === 'sleep') { last = null; return mark(can('wave') ? 'wave' : pool[0]); }
+      bag = bag.filter(can);
       if (!bag.length) {
-        bag = [...TAP_BAG].sort(() => rng() - 0.5);
+        bag = [...pool].sort(() => rng() - 0.5);
         if (bag[bag.length - 1] === lastTap) bag.unshift(bag.pop()); // never the same reaction twice in a row
       }
       lastTap = bag.pop();
       return mark(lastTap);
     },
 
-    /** Learning events. Returns the action to play, or null while on cooldown. */
-    react(event) {
+    /** Learning events. Returns the action to play, or null while on cooldown / not in the pack. */
+    react(event, can = () => true) {
       const type = event === 'again' ? 'encourage' : 'cheer';
-      if (!ready(type)) return null;
+      if (!can(type) || !ready(type)) return null;
       return mark(type);
     },
 
-    greet() { return mark('wave'); },
+    greet(can = () => true) { return can('wave') ? mark('wave') : null; },
     get last() { return last; },
     reset() { last = null; },
   };
