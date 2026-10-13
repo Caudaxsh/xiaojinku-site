@@ -784,7 +784,7 @@ function renderImport() {
         <span>支援 .pdf、.txt、.md，可以一次 40–50 個單字</span>
       </label>
       <input id="imp-file" type="file" accept="application/pdf,.pdf,.txt,.md,.markdown,text/plain" hidden>
-      <p class="status" id="imp-status">${esc(S.imp.status)}</p>
+      <p class="status" id="imp-status">${statusHtml(S.imp.status, S.imp.diag)}</p>
       <div class="or">或直接貼上</div>
       <textarea id="imp-text" class="textarea" placeholder="把 ChatGPT 的整段回覆貼在這裡" spellcheck="false" autocapitalize="none" autocorrect="off">${esc(S.imp.text)}</textarea>
       <div class="btn-row" style="margin-top:10px">
@@ -875,36 +875,64 @@ async function doImport() {
   go('today');
 }
 
-function setImportStatus(text) {
+const statusHtml = (text, diag) => `${esc(text)}${diag ? ` <button class="linkish" data-act="copy-diag">${icon('copy', { size: 14 })}複製診斷資訊</button>` : ''}`;
+
+function setImportStatus(text, diag = null) {
   S.imp.status = text;
+  S.imp.diag = diag;
   const el = $('#imp-status');
-  if (el) el.textContent = text;
+  if (el) el.innerHTML = statusHtml(text, diag);
+}
+
+/** Text files from other tools: honour a UTF-16 byte-order mark, and fall back to Big5 when UTF-8 comes out garbled. */
+async function readTextFile(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes.subarray(2));
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder('utf-16be').decode(bytes.subarray(2));
+  const utf8 = new TextDecoder('utf-8').decode(bytes).replace(/^\uFEFF/, '');
+  const bad = (utf8.match(/\uFFFD/g) || []).length;
+  if (bad > 3 && bad / Math.max(1, utf8.length) > 0.002) {
+    try { return new TextDecoder('big5').decode(bytes); } catch { /* keep utf-8 */ }
+  }
+  return utf8;
 }
 
 async function readFileInto(file) {
   if (!file) return;
-  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  setImportStatus('');
   try {
+    // Decide by the file's header, not its name: iOS sometimes hands over a PDF with no extension or a wrong type.
+    const { hasPdfHeader, pdfToTextWithStats, explain, formatDiag } = await import('./pdf.js');
+    const head = new Uint8Array(await file.slice(0, 1024).arrayBuffer());
+    const isPdf = hasPdfHeader(head) || file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
     if (isPdf) {
       setImportStatus('正在讀取 PDF…');
-      const { pdfToTextWithStats } = await import('./pdf.js');
-      const { text, stats } = await pdfToTextWithStats(file, (n, total) => setImportStatus(`正在讀取 PDF：第 ${n} / ${total} 頁`));
-      S.imp.text = text;
-      if (!text.trim()) {
-        setImportStatus('這個 PDF 裡讀不到文字（可能是掃描圖片），請改用複製貼上。');
-      } else {
-        const notes = [];
-        if (stats.headerLines) notes.push(`已自動移除 ${stats.headerLines} 行頁首／頁尾`);
-        if (stats.restored) notes.push(`PDF 缺少 ${stats.restored} 個圓圈數字，已依序補回（建議請 ChatGPT 不要用 ①②）`);
-        if (stats.tofu) notes.push(`⚠ 有 ${stats.tofu} 個字元在 PDF 裡顯示不出來（方塊或問號），請檢查那幾個字`);
-        setImportStatus(`已讀取「${file.name}」，共 ${stats.pages} 頁${notes.length ? `。${notes.join('；')}` : ''}`);
+      try {
+        const { text, stats } = await pdfToTextWithStats(file, (n, total) => setImportStatus(`正在讀取 PDF：第 ${n} / ${total} 頁`));
+        S.imp.text = text;
+        if (!text.trim()) {
+          setImportStatus(explain('empty'), formatDiag(stats.diag, '結果：沒有文字'));
+        } else {
+          const notes = [];
+          if (stats.headerLines) notes.push(`已自動移除 ${stats.headerLines} 行頁首／頁尾`);
+          if (stats.restored) notes.push(`PDF 缺少 ${stats.restored} 個圓圈數字，已依序補回（建議請 ChatGPT 不要用 ①②）`);
+          if (stats.missing) notes.push(`⚠ 有 ${stats.missing} 個字在 PDF 裡本來就是空白（字型缺字），已用「□」標記，請在下面的文字框補上：${stats.missingAt.slice(0, 3).map((x) => `「${x}」`).join('')}`);
+          if (stats.tofu) notes.push(`⚠ 有 ${stats.tofu} 個字元在 PDF 裡顯示不出來（方塊或問號），請檢查那幾個字`);
+          if (stats.via && stats.via !== 'direct') notes.push(`（這個瀏覽器改用備用方式讀取：${stats.via}）`);
+          setImportStatus(`已讀取「${file.name}」，共 ${stats.pages} 頁${notes.length ? `。${notes.join('；')}` : ''}`);
+        }
+      } catch (err) {
+        if (!err?.diag) throw err;
+        setImportStatus(`${explain(err.kind)}（${err.message}）`, formatDiag(err.diag, `結果：${err.kind}：${err.message}`));
+        return;
       }
     } else {
-      S.imp.text = await file.text();
+      S.imp.text = await readTextFile(file);
       setImportStatus(`已讀取「${file.name}」`);
     }
-  } catch {
-    setImportStatus('檔案讀取失敗，請改用複製貼上。');
+  } catch (err) {
+    const info = `Cash Volcab 檔案讀取診斷\n檔案：${file.name}（${file.size} bytes，${file.type || '未知類型'}）\n錯誤：${err?.name}: ${err?.message}\n瀏覽器：${navigator.userAgent}`;
+    setImportStatus(`檔案讀取失敗（${err?.message || err}），請改用複製貼上。`, info);
     return;
   }
   const ta = $('#imp-text');
@@ -1097,6 +1125,10 @@ const actions = {
       toast('提示詞已複製，貼給 ChatGPT 後，在最後接上要學的單字');
     }
     catch { toast('複製失敗，請到「支援的格式」手動參考'); }
+  },
+  'copy-diag': async () => {
+    try { await navigator.clipboard.writeText(S.imp.diag || ''); toast('診斷資訊已複製，貼給我就能查原因'); }
+    catch { toast('複製失敗，請截圖這一頁'); }
   },
   'load-sample': async () => {
     try {
