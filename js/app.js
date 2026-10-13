@@ -7,7 +7,7 @@ import { createPet } from './pet/pet.js';
 import { readPackFile } from './pet/pack.js';
 
 const APP_NAME = 'Cash Volcab';
-const APP_VERSION = '2.4.0';
+const APP_VERSION = '2.4.1';
 const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, pet: true, petQuiet: false };
 
 const S = {
@@ -537,9 +537,9 @@ function actionBar() {
     return `
       <p class="ask"><b>這個字對你的重要性？</b></p>
       <div class="pick-grid">
-        <button class="pick-btn s3" data-act="rate-new" data-stars="3">${starsHtml(3)}<b>最重要</b><small>第 3 個學習日再複習</small></button>
-        <button class="pick-btn" data-act="rate-new" data-stars="2">${starsHtml(2)}<b>重要</b><small>看過這次就好</small></button>
-        <button class="pick-btn" data-act="rate-new" data-stars="1">${starsHtml(1)}<b>艱深少用</b><small>看過這次就好</small></button>
+        <button class="pick-btn s3" data-act="rate-new" data-stars="3">${starsHtml(3)}<b>最重要</b></button>
+        <button class="pick-btn" data-act="rate-new" data-stars="2">${starsHtml(2)}<b>重要</b></button>
+        <button class="pick-btn" data-act="rate-new" data-stars="1">${starsHtml(1)}<b>艱深少用</b></button>
       </div>`;
   }
 
