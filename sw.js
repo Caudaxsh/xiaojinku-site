@@ -1,5 +1,5 @@
 // Offline cache. Bump CACHE whenever any app file changes so phones pick up the update.
-const CACHE = 'cash-volcab-v14';
+const CACHE = 'cash-volcab-v15';
 const ASSETS = [
   './',
   'index.html',
@@ -18,7 +18,9 @@ const ASSETS = [
   'js/pet/pack.js',
   'pet.html',
   'pet/goku.petpack.json',
-  'icons/icon.svg',
+  'icons/favicon-32.png',
+  'icons/favicon-64.png',
+  'icons/icon-maskable-512.png',
   'icons/icon-180.png',
   'icons/icon-192.png',
   'icons/icon-512.png',
