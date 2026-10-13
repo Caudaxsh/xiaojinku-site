@@ -7,6 +7,9 @@
 // application/octet-stream, which makes browsers refuse to load a module.
 const LIB = new URL('../vendor/pdfjs/pdf.min.js', import.meta.url).href;
 const WORKER = new URL('../vendor/pdfjs/pdf.worker.min.js', import.meta.url).href;
+// pdf.js 3.x (classic scripts, legacy build): runs on far older and odder browsers than 6.x, so it goes first.
+const LIB3 = new URL('../vendor/pdfjs3/pdf.min.js', import.meta.url).href;
+const WORKER3 = new URL('../vendor/pdfjs3/pdf.worker.min.js', import.meta.url).href;
 
 const NOISE = [/^\d{1,3}$/, /^page\s*\d+/i, /^\d+\s*\/\s*\d+$/, /^第\s*\d+\s*頁/, /^-\s*\d+\s*-$/];
 const TERMINAL = /[.!?。！？」”"]$/;
@@ -166,31 +169,58 @@ async function importViaBlob(url) {
   return { mod: await import(blobUrl), blobUrl };
 }
 
+function loadScript(url) {
+  return new Promise((resolve, reject) => {
+    const el = document.createElement('script');
+    el.src = url;
+    el.onload = () => resolve();
+    el.onerror = () => reject(new Error(`載入 ${url.split('/').slice(-2).join('/')} 失敗`));
+    document.head.append(el);
+  });
+}
+
+/** Run pdf.js in this thread: pdf.js falls back to that by itself when creating a Worker throws. */
+function withoutWorkers() {
+  const real = globalThis.Worker;
+  globalThis.Worker = function Disabled() { throw new Error('worker disabled'); };
+  return () => { globalThis.Worker = real; };
+}
+
 /**
- * Three ways to start pdf.js, from the normal one to the most forgiving one. Returns the first that works.
- *   direct   — module + worker from the site (normal)
- *   blob     — same files, re-wrapped as Blobs (hosts / browsers that reject the MIME type)
- *   mainThread — no Web Worker at all (browsers where module workers do not start; slower but works)
+ * Ways to start pdf.js, from the most compatible to the newest. The first that works is used.
+ *   v3          — pdf.js 3.x as classic scripts + Web Worker (runs on old and unusual browsers)
+ *   v3-main     — the same without a Web Worker
+ *   v6          — pdf.js 6.x modules + Web Worker
+ *   v6-blob     — same files re-wrapped as Blobs (hosts that serve the wrong file type)
+ *   v6-main     — pdf.js 6.x without a Web Worker
  */
 const LOADERS = [
-  { id: 'direct', async load() {
+  { id: 'v3', async load() {
+    if (!globalThis.pdfjsLib) await loadScript(LIB3);
+    globalThis.pdfjsLib.GlobalWorkerOptions.workerSrc = WORKER3;
+    return { pdfjs: globalThis.pdfjsLib, cleanup() {} };
+  } },
+  { id: 'v3-main', async load() {
+    if (!globalThis.pdfjsLib) await loadScript(LIB3);
+    globalThis.pdfjsLib.GlobalWorkerOptions.workerSrc = WORKER3;
+    return { pdfjs: globalThis.pdfjsLib, cleanup: withoutWorkers() };
+  } },
+  { id: 'v6', async load() {
     const pdfjs = await import(LIB);
     pdfjs.GlobalWorkerOptions.workerSrc = WORKER;
     return { pdfjs, cleanup() {} };
   } },
-  { id: 'blob', async load() {
+  { id: 'v6-blob', async load() {
     const { mod: pdfjs } = await importViaBlob(LIB);
-    const { blobUrl } = await importViaBlob(WORKER).then((r) => ({ blobUrl: r.blobUrl }));
+    const { blobUrl } = await importViaBlob(WORKER);
     pdfjs.GlobalWorkerOptions.workerPort = new Worker(blobUrl, { type: 'module' });
     return { pdfjs, cleanup() { pdfjs.GlobalWorkerOptions.workerPort?.terminate(); pdfjs.GlobalWorkerOptions.workerPort = null; } };
   } },
-  { id: 'mainThread', async load() {
+  { id: 'v6-main', async load() {
     const { mod: pdfjs } = await importViaBlob(LIB);
     const { mod: worker } = await importViaBlob(WORKER);
-    const realWorker = globalThis.Worker;
     globalThis.pdfjsWorker = worker;
-    globalThis.Worker = function Disabled() { throw new Error('worker disabled'); }; // pdf.js then runs its worker in this thread
-    return { pdfjs, cleanup() { globalThis.Worker = realWorker; } };
+    return { pdfjs, cleanup: withoutWorkers() };
   } },
 ];
 
@@ -232,14 +262,14 @@ export function explain(kind) {
     password: '這個 PDF 有密碼保護，讀不了。請先解除密碼，或請 ChatGPT 重新輸出一份。',
     invalid: '這個檔案不是完整的 PDF（可能下載到一半，或被改過副檔名）。請重新下載，或改用「貼上版」。',
     empty: '這個 PDF 裡讀不到文字，可能是掃描成圖片的 PDF。請改用「貼上版」提示詞，直接複製 ChatGPT 的回覆。',
-    engine: '這個瀏覽器跑不起 PDF 讀取元件（已經試過 3 種方式）。請改用「貼上版」提示詞：複製 ChatGPT 的回覆再貼上就好。',
+    engine: '這個瀏覽器跑不起 PDF 讀取元件（已經試過 5 種方式）。請改用「貼上版」提示詞：複製 ChatGPT 的回覆再貼上就好。',
   }[kind] || '讀取失敗。';
 }
 
 /** Same as pdfToText, plus a small report the import screen can show. Throws PdfReadError. */
 export async function pdfToTextWithStats(file, onProgress = () => {}) {
   const data = new Uint8Array(await file.arrayBuffer());
-  const diag = { file: { name: file.name, size: file.size, type: file.type }, tries: [], pdfjs: '6.3.289' };
+  const diag = { file: { name: file.name, size: file.size, type: file.type }, tries: [], pdfjs: '3.11.174 + 6.3.289' };
   if (!data.length) throw new PdfReadError('invalid', '檔案是空的', diag);
   if (!hasPdfHeader(data)) throw new PdfReadError('invalid', '找不到 %PDF 檔頭', diag);
   for (const loader of LOADERS) {
