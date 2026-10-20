@@ -149,3 +149,21 @@ export function streak(days, today = todayStr()) {
   }
   return count;
 }
+
+/**
+ * New words come in batches: everything imported on the same day is one batch. A study day only
+ * serves the oldest batch that still has unstudied words (plus any batch the learner chose to
+ * continue with), so imports from several days never pile up into one huge session.
+ */
+export const batchOf = (card) => card.addedAt || '';
+
+export function batchKeys(cards) {
+  return [...new Set(cards.filter((c) => c.status === 'new').map(batchOf))].sort();
+}
+
+/** The unstudied words of the unlocked batches, in import order. */
+export function unlockedNew(cards, keys) {
+  return cards
+    .filter((c) => c.status === 'new' && keys.includes(batchOf(c)))
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+}

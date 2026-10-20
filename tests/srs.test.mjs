@@ -104,3 +104,20 @@ test('interval preview, due text and streak', () => {
   assert.equal(streak(['2026-10-11'], '2026-10-12'), 1);
   assert.equal(streak([], '2026-10-12'), 0);
 });
+
+test('new words come one import batch at a time, never piled up', async () => {
+  const { batchKeys, unlockedNew } = await import('../js/srs.js');
+  const mk = (date, n, from) => Array.from({ length: n }, (_, i) => newCard({ id: `${date}-${i}`, word: 'w', order: from + i }, date));
+  let cards = [...mk('2026-10-12', 10, 0), ...mk('2026-10-13', 17, 10)];
+  assert.deepEqual(batchKeys(cards), ['2026-10-12', '2026-10-13']);
+  // The study day unlocks only the oldest batch.
+  let keys = [batchKeys(cards)[0]];
+  assert.equal(unlockedNew(cards, keys).length, 10);
+  // Once that batch is studied, it stays closed until the learner continues or the next study day.
+  cards = cards.map((c) => (c.addedAt === '2026-10-12' ? { ...c, status: 'active' } : c));
+  assert.equal(unlockedNew(cards, keys).length, 0);
+  keys = [batchKeys(cards)[0]]; // next study day
+  assert.equal(unlockedNew(cards, keys).length, 17);
+  // Two imports on the same day are a single batch.
+  assert.equal(batchKeys([...mk('2026-10-14', 3, 0), ...mk('2026-10-14', 4, 3)]).length, 1);
+});

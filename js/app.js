@@ -7,7 +7,7 @@ import { createPet } from './pet/pet.js';
 import { readPackFile } from './pet/pack.js';
 
 const APP_NAME = 'Cash Volcab';
-const APP_VERSION = '2.4.2';
+const APP_VERSION = '2.5.0';
 const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, pet: true, petQuiet: false };
 
 const S = {
@@ -16,7 +16,7 @@ const S = {
   settings: { ...DEFAULT_SETTINGS },
   days: [],
   clock: srs.newClock(),
-  newToday: { date: '', count: 0, bonus: 0 },
+  newToday: { date: '', count: 0, bonus: 0, keys: [] },
   tab: 'today',
   study: null,
   lib: { q: '', filter: 'all' },
@@ -138,7 +138,8 @@ async function saveMeta(key, value) {
 
 function newState() {
   const today = srs.todayStr();
-  if (S.newToday.date !== today) S.newToday = { date: today, count: 0, bonus: 0 };
+  if (S.newToday.date !== today) S.newToday = { date: today, count: 0, bonus: 0, keys: [] };
+  if (!Array.isArray(S.newToday.keys)) S.newToday.keys = [];
   return S.newToday;
 }
 
@@ -150,12 +151,27 @@ function remainingNew() {
 /** Which study day it is right now (a day only counts once you actually study). */
 const day = () => srs.currentDay(S.clock);
 
+/** New words allowed today: only the oldest import batch with unstudied words, unless the learner continued. */
+function todayNew() {
+  const n = newState();
+  const all = srs.batchKeys(S.cards);
+  if (!n.keys.length && all.length) { n.keys = [all[0]]; saveMeta('newToday', n); }
+  return srs.unlockedNew(S.cards, n.keys);
+}
+
+/** The next waiting batch, if any: { key, size }. */
+function nextBatch() {
+  const n = newState();
+  const key = srs.batchKeys(S.cards).find((k) => !n.keys.includes(k));
+  return key === undefined ? null : { key, size: S.cards.filter((c) => c.status === 'new' && srs.batchOf(c) === key).length };
+}
+
 function counts() {
   const fresh = S.cards.filter((c) => c.status === 'new');
   return {
     total: S.cards.length,
     fresh: fresh.length,
-    freshToday: Math.min(fresh.length, remainingNew()),
+    freshToday: Math.min(todayNew().length, remainingNew()),
     due: S.cards.filter((c) => srs.isDue(c, day())).length,
     mastered: S.cards.filter((c) => c.status === 'mastered').length,
   };
@@ -165,11 +181,15 @@ function buildQueue() {
   const due = S.cards
     .filter((c) => srs.isDue(c, day()))
     .sort((a, b) => a.due - b.due || b.stars - a.stars);
-  const fresh = S.cards
-    .filter((c) => c.status === 'new')
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-    .slice(0, remainingNew());
+  const fresh = todayNew().slice(0, remainingNew());
   return [...due, ...fresh].map((c) => ({ id: c.id, retry: false }));
+}
+
+function unlockNextBatch() {
+  const nb = nextBatch();
+  if (!nb) return;
+  newState().keys.push(nb.key);
+  saveMeta('newToday', S.newToday);
 }
 
 async function markDay() {
@@ -324,7 +344,7 @@ const RULES = `
   <div class="rule">${starsHtml(3)}<p><b>最重要</b>（口說必備）：第 3 個學習日再複習一次，那張卡會變成深色卡</p></div>
   <div class="rule">${starsHtml(2)}<p><b>重要</b>：下次學習時看過這一次就好</p></div>
   <div class="rule">${starsHtml(1)}<p><b>艱深少用</b>：下次學習時看過這一次就好</p></div>
-  <p class="muted small" style="margin-top:8px">匯入的單字會在你「下一次開始學習」時出現。有學習的那一天才算一個學習日，哪天沒學，所有複習就整體順延。</p>`;
+  <p class="muted small" style="margin-top:8px">每天匯入的單字算一批：每個學習日只出最早還沒學的那一批（今天 10 個、明天 17 個，就分兩天各學一批，不會疊成 27 個）；學完後想多學，可以按「繼續學下一批」。有學習的那一天才算一個學習日，哪天沒學，所有複習就整體順延。</p>`;
 
 /* ---------------------------------------------------------------- today */
 
@@ -345,13 +365,15 @@ function renderToday() {
         </div>
       </div>`;
   } else if (!todayTotal) {
-    const more = c.fresh > 0;
+    const nb = nextBatch();
+    const capped = todayNew().length > 0; // today's batch is not finished, only the daily cap is reached
     main = `
       <div class="panel empty">
         <h2>今天的都完成了</h2>
-        <p>${more ? `還有 ${c.fresh} 個新字排隊中。` : '沒有要複習的單字，明天見。'}</p>
+        <p>${c.fresh > 0 ? `還有 ${c.fresh} 個新字排隊中，下次學習日繼續。` : '沒有要複習的單字，明天見。'}</p>
         <div class="btn-row" style="justify-content:center;margin-top:16px">
-          ${more ? '<button class="btn primary" data-act="more-new">再多學 10 個新字</button>' : ''}
+          ${capped ? '<button class="btn primary" data-act="more-new">再多學 10 個新字</button>' : ''}
+          ${!capped && nb ? `<button class="btn primary" data-act="more-batch">繼續學下一批（${nb.size} 個新字）</button>` : ''}
           <button class="btn" data-act="tab" data-tab="import">匯入新單字</button>
         </div>
       </div>`;
@@ -643,7 +665,8 @@ function renderDone() {
         ${newCount ? `<p class="muted small">${starsHtml(3)} ${r.newRated[3]}　${starsHtml(2)} ${r.newRated[2]}　${starsHtml(1)} ${r.newRated[1]}</p>` : ''}
         ${!st.practice && c.fresh ? `<p class="muted small">還有 ${c.fresh} 個新字，明天繼續。</p>` : ''}
         <div class="btn-row" style="margin-top:14px;justify-content:center">
-          ${!st.practice && c.fresh && remainingNew() === 0 ? '<button class="btn" data-act="more-new-start">再多學 10 個</button>' : ''}
+          ${!st.practice && todayNew().length && remainingNew() === 0 ? '<button class="btn" data-act="more-new-start">再多學 10 個</button>' : ''}
+          ${!st.practice && !todayNew().length && nextBatch() ? `<button class="btn" data-act="more-batch-start">繼續學下一批（${nextBatch().size} 個）</button>` : ''}
           <button class="btn primary" data-act="tab" data-tab="${st.practice ? 'library' : 'today'}">${st.practice ? '回單字庫' : '回首頁'}</button>
         </div>
       </div>
@@ -991,7 +1014,7 @@ function renderSettings() {
     <div class="page-head"><h1>設定</h1><p class="sub">${APP_NAME} v${APP_VERSION}</p></div>
     <div class="panel">
       <div class="set-row">
-        <div><b>每天新字上限</b><p>匯入很多字時，每天最多出幾個新字</p></div>
+        <div><b>每天新字上限</b><p>單一批匯入很多字時，每個學習日最多出幾個新字</p></div>
         <div class="stepper"><button data-act="new-per-day" data-d="-5" aria-label="減少">−</button><b>${S.settings.newPerDay}</b><button data-act="new-per-day" data-d="5" aria-label="增加">＋</button></div>
       </div>
       <div class="set-row">
@@ -1098,6 +1121,8 @@ const actions = {
     go(back);
   },
   'more-new': () => { newState().bonus += 10; saveMeta('newToday', S.newToday); renderToday(); },
+  'more-batch': () => { unlockNextBatch(); renderToday(); },
+  'more-batch-start': () => { unlockNextBatch(); S.study = null; startStudy(); },
   'more-new-start': () => { newState().bonus += 10; saveMeta('newToday', S.newToday); S.study = null; startStudy(); },
   'dismiss-banner': () => { setFlag('xj-banner'); renderToday(); },
   filter: (el) => {
@@ -1210,7 +1235,7 @@ const actions = {
     await saveCards(reset);
     S.days = [];
     S.clock = srs.newClock();
-    S.newToday = { date: '', count: 0, bonus: 0 };
+    S.newToday = { date: '', count: 0, bonus: 0, keys: [] };
     await saveMeta('days', S.days);
     await saveMeta('clock', S.clock);
     await saveMeta('newToday', S.newToday);
@@ -1222,7 +1247,7 @@ const actions = {
     if (!armed(el, '再按一次，確認清除全部資料（無法復原）')) return;
     await S.store.clear();
     if (pet.pack && !pet.builtin) { await saveMeta('petpack', pet.pack); await saveMeta('petpackCustom', true); }
-    S.cards = []; S.days = []; S.clock = srs.newClock(); S.settings = { ...DEFAULT_SETTINGS }; S.newToday = { date: '', count: 0, bonus: 0 }; S.lastImport = null;
+    S.cards = []; S.days = []; S.clock = srs.newClock(); S.settings = { ...DEFAULT_SETTINGS }; S.newToday = { date: '', count: 0, bonus: 0, keys: [] }; S.lastImport = null;
     toast('已清除');
     render();
   },
