@@ -7,7 +7,7 @@ import { createPet } from './pet/pet.js';
 import { readPackFile } from './pet/pack.js';
 
 const APP_NAME = 'Cash Volcab';
-const APP_VERSION = '2.5.0';
+const APP_VERSION = '2.5.1';
 const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, pet: true, petQuiet: false };
 
 const S = {
@@ -166,6 +166,13 @@ function nextBatch() {
   return key === undefined ? null : { key, size: S.cards.filter((c) => c.status === 'new' && srs.batchOf(c) === key).length };
 }
 
+/** How many study days the unstudied words still need: one batch per day, a huge batch splits at the daily cap. */
+function freshDays(fresh) {
+  const sizes = {};
+  fresh.forEach((c) => { const k = srs.batchOf(c); sizes[k] = (sizes[k] || 0) + 1; });
+  return Object.values(sizes).reduce((n, size) => n + Math.ceil(size / Math.max(1, S.settings.newPerDay)), 0);
+}
+
 function counts() {
   const fresh = S.cards.filter((c) => c.status === 'new');
   return {
@@ -174,6 +181,7 @@ function counts() {
     freshToday: Math.min(todayNew().length, remainingNew()),
     due: S.cards.filter((c) => srs.isDue(c, day())).length,
     mastered: S.cards.filter((c) => c.status === 'mastered').length,
+    freshDays: freshDays(fresh),
   };
 }
 
@@ -384,12 +392,12 @@ function renderToday() {
   setView(`
     <div class="page-head hero">
       <div><p class="eyebrow">${now.getMonth() + 1} 月 ${now.getDate()} 日</p><h1>${APP_NAME}</h1></div>
-      <div class="streak">${icon('trophy', { size: 22 })}<b>${srs.streak(S.days)}</b><span>連續天數</span></div>
+      <div class="streak">${icon('trophy', { size: 22 })}<b>${S.days.length}</b><span>Check-in days</span></div>
     </div>
     <div class="tiles">
       <div class="tile ${c.freshToday ? 'hot' : ''}">${icon('today', { size: 22 })}<div class="num">${c.freshToday}</div><div class="lbl">今日新字</div></div>
       <div class="tile ${c.due ? 'hot' : ''}">${icon('due', { size: 22 })}<div class="num">${c.due}</div><div class="lbl">待複習</div></div>
-      <div class="tile">${icon('mastered', { size: 22 })}<div class="num">${c.mastered}</div><div class="lbl">已學完</div></div>
+      <div class="tile">${icon('book', { size: 22 })}<div class="num">${c.fresh}</div><div class="lbl">待學新字<br>${c.fresh ? `約 ${c.freshDays} 天的量` : '全部學過了'}</div></div>
     </div>
     ${main}
     ${S.lastImport && S.lastImport.date === srs.todayStr() && S.lastImport.added.length + S.lastImport.updated.length ? `
@@ -435,7 +443,13 @@ function todayPlatforms() {
   }
   const add = (el, key) => { if (!el) return; const r = el.getBoundingClientRect(); if (r.width) out.push({ key, left: r.left, right: r.right, top: r.top, bottom: r.bottom }); };
   add($('.streak'), 'streak');
-  document.querySelectorAll('.tile').forEach((el, i) => add(el, `tile${i}`));
+  // The check-in label hangs right above the last tile: the pet may not stand under it.
+  const labelLeft = $('.streak span')?.getBoundingClientRect().left;
+  document.querySelectorAll('.tile').forEach((el, i) => {
+    add(el, `tile${i}`);
+    const q = out[out.length - 1];
+    if (q && q.key === `tile${i}` && labelLeft != null && labelLeft > q.left && labelLeft < q.right && $('.streak span').getBoundingClientRect().bottom > q.top - 70) q.right = labelLeft - 14;
+  });
   add($('[data-act="start"]'), 'start');
   document.querySelectorAll('#view > .panel').forEach((el, i) => add(el, `panel${i}`));
   return out;
