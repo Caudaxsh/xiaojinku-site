@@ -7,7 +7,7 @@ import { createPet } from './pet/pet.js';
 import { readPackFile } from './pet/pack.js';
 
 const APP_NAME = 'Cash Volcab';
-const APP_VERSION = '2.5.1';
+const APP_VERSION = '2.6.0';
 const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, pet: true, petQuiet: false };
 
 const S = {
@@ -19,7 +19,7 @@ const S = {
   newToday: { date: '', count: 0, bonus: 0, keys: [] },
   tab: 'today',
   study: null,
-  lib: { q: '', filter: 'all' },
+  lib: { q: '', filter: 'all', sel: null },
   imp: { text: '', result: null, status: '' },
   lastImport: null,
 };
@@ -337,6 +337,7 @@ function render() {
 
 function go(tab) {
   S.tab = tab;
+  S.lib.sel = null;
   S.study = null;
   closeSheet();
   render();
@@ -718,24 +719,45 @@ function filteredCards() {
 
 function listHtml() {
   const list = filteredCards();
-  const practice = list.length ? `<button class="btn sm practice" data-act="practice">${icon('reviewing', { size: 16 })}練習這 ${list.length} 個字（不影響排程）</button>` : '';
+  const practice = list.length && !S.lib.sel ? `<button class="btn sm practice" data-act="practice">${icon('reviewing', { size: 16 })}練習這 ${list.length} 個字（不影響排程）</button>` : '';
   if (!list.length) return '<div class="empty"><p>沒有符合的單字</p></div>';
   return `${practice}<div class="list">${list.map((c) => `
-    <button class="item" data-act="open-card" data-id="${esc(c.id)}">
-      <span class="w">${esc(c.word)}</span>
+    <button class="item ${S.lib.sel ? 'picking' : ''} ${S.lib.sel?.has(c.id) ? 'picked' : ''}" data-act="${S.lib.sel ? 'toggle-pick' : 'open-card'}" data-id="${esc(c.id)}">
+      <span class="w">${S.lib.sel ? '<i class="pick" aria-hidden="true"></i>' : ''}${esc(c.word)}</span>
       <span class="m">${esc(c.meaning || c.zh[0] || '')}</span>
       <span class="meta">${c.status === 'new' ? '<span class="chip">NEW</span>' : starsHtml(c.stars)}<span class="ic-label state">${icon(statusIcon(c), { size: 14 })}${dueLabel(c)}</span></span>
     </button>`).join('')}</div>`;
 }
 
+function libBarHtml() {
+  const sel = S.lib.sel;
+  if (!sel) return '';
+  const shown = filteredCards();
+  const all = shown.length > 0 && shown.every((c) => sel.has(c.id));
+  return `<div class="selbar">
+    <button class="btn sm" data-act="pick-all">${all ? '取消全選' : `全選 ${shown.length} 個`}</button>
+    <span class="muted small">已選 ${sel.size} 個</span>
+    <button class="btn sm danger" data-act="delete-picked" ${sel.size ? '' : 'disabled'}>${icon('trash', { size: 16 })}刪除</button>
+  </div>`;
+}
+
+/** Re-draw the parts of the library that depend on the selection. */
+function refreshLib() {
+  const list = $('#lib-list'); if (!list) return;
+  list.innerHTML = listHtml();
+  $('#lib-bar').innerHTML = libBarHtml();
+  const b = $('#lib-select'); if (b) b.textContent = S.lib.sel ? '完成' : '選取';
+}
+
 function renderLibrary() {
   setView(`
-    <div class="page-head"><h1>單字庫</h1><p class="sub">共 ${S.cards.length} 個單字</p></div>
+    <div class="page-head head-row"><div><h1>單字庫</h1><p class="sub">共 ${S.cards.length} 個單字</p></div>${S.cards.length ? `<button id="lib-select" class="btn sm" data-act="lib-select">${S.lib.sel ? '完成' : '選取'}</button>` : ''}</div>
     <div class="search">${icon('search', { size: 18 })}<input id="lib-q" class="input" type="search" placeholder="搜尋單字或中文意思" value="${esc(S.lib.q)}" autocomplete="off" autocapitalize="none"></div>
     <div class="filters" id="lib-filters">
       ${FILTERS.map(([k, label]) => `<button data-act="filter" data-filter="${k}" class="${S.lib.filter === k ? 'on' : ''}">${label} ${S.cards.filter((c) => matchFilter(c, k)).length}</button>`).join('')}
     </div>
-    <div id="lib-list">${listHtml()}</div>`);
+    <div id="lib-list">${listHtml()}</div>
+    <div id="lib-bar">${libBarHtml()}</div>`);
 }
 
 function openSheet(html) {
@@ -1142,7 +1164,7 @@ const actions = {
   filter: (el) => {
     S.lib.filter = el.dataset.filter;
     document.querySelectorAll('#lib-filters button').forEach((b) => b.classList.toggle('on', b === el));
-    $('#lib-list').innerHTML = listHtml();
+    refreshLib();
   },
   practice: () => {
     const list = filteredCards().map((c) => ({ id: c.id, retry: true }));
@@ -1159,6 +1181,30 @@ const actions = {
     await saveCards([srs.changeStars(c, Number(el.dataset.stars), day())]);
     openCardSheet(c.id);
     if (S.tab === 'library' && $('#lib-list')) $('#lib-list').innerHTML = listHtml();
+  },
+  'lib-select': () => { S.lib.sel = S.lib.sel ? null : new Set(); refreshLib(); },
+  'toggle-pick': (el) => {
+    const sel = S.lib.sel; if (!sel) return;
+    if (sel.has(el.dataset.id)) sel.delete(el.dataset.id); else sel.add(el.dataset.id);
+    el.classList.toggle('picked', sel.has(el.dataset.id));
+    $('#lib-bar').innerHTML = libBarHtml();
+  },
+  'pick-all': () => {
+    const sel = S.lib.sel; if (!sel) return;
+    const shown = filteredCards();
+    if (shown.every((c) => sel.has(c.id))) shown.forEach((c) => sel.delete(c.id)); else shown.forEach((c) => sel.add(c.id));
+    refreshLib();
+  },
+  'delete-picked': async (el) => {
+    const sel = S.lib.sel; if (!sel || !sel.size) return;
+    if (!armed(el, `再按一次，確認刪除 ${sel.size} 個`)) return;
+    const ids = [...sel];
+    for (const id of ids) await S.store.remove(id);
+    const gone = new Set(ids);
+    S.cards = S.cards.filter((c) => !gone.has(c.id));
+    S.lib.sel = null;
+    render();
+    toast(`已刪除 ${ids.length} 個單字`);
   },
   'delete-card': async (el) => {
     const c = cardById(el.dataset.id);
@@ -1279,7 +1325,7 @@ document.addEventListener('pointerdown', () => unlockAudio(), { once: true, capt
 
 document.addEventListener('input', (e) => {
   if (e.target.id === 'imp-text') { S.imp.text = e.target.value; updateImportPreview(); }
-  if (e.target.id === 'lib-q') { S.lib.q = e.target.value; $('#lib-list').innerHTML = listHtml(); }
+  if (e.target.id === 'lib-q') { S.lib.q = e.target.value; refreshLib(); }
 });
 
 document.addEventListener('change', (e) => {
