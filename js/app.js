@@ -7,7 +7,7 @@ import { createPet } from './pet/pet.js';
 import { readPackFile } from './pet/pack.js';
 
 const APP_NAME = 'Cash Volcab';
-const APP_VERSION = '2.6.0';
+const APP_VERSION = '2.6.1';
 const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, pet: true, petQuiet: false };
 
 const S = {
@@ -477,7 +477,7 @@ function onCardShown() {
   const cur = studyEntry();
   if (!cur) return;
   const { card } = cur;
-  if (S.settings.autoPlay) say(spoken(card.word), { isWord: true });
+  if (S.settings.autoPlay) say(spoken(card.word));
   if (!card.ipa && !ipaTried.has(card.id)) {
     ipaTried.add(card.id);
     lookupIpa(card.word).then(async (ipa) => {
@@ -1140,7 +1140,7 @@ const actions = {
   tab: (el) => go(el.dataset.tab),
   start: () => startStudy(),
   flip: flipCard,
-  speak: (el) => say(el.dataset.kind === 'word' ? spoken(el.dataset.text) : el.dataset.text, { isWord: el.dataset.kind === 'word' }),
+  speak: (el) => say(el.dataset.kind === 'word' ? spoken(el.dataset.text) : el.dataset.text),
   jump: (el) => {
     const target = document.getElementById(el.dataset.to);
     if (target) target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
