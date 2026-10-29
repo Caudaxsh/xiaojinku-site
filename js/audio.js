@@ -1,119 +1,48 @@
-// Pronunciation. Words try Cambridge Dictionary's US recording first, then
-// Google Translate's voice, then the phone's built-in English voice.
-// Sentences skip Cambridge (it only has single words).
+// Pronunciation: the phone's own English voice only (works offline).
 //
-// One shared <audio> element is used on purpose: iOS only lets a page play
-// sound programmatically after that same element has been started by a tap.
-
-const SILENT = 'data:audio/wav;base64,UklGRiwAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQgAAACAgICAgICAgA==';
-const STORE_KEY = 'xj-audio-src';
-const TIMEOUT_MS = 5000;
-
-const player = new Audio();
-player.preload = 'auto';
-
-let memo = {};
-try { memo = JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch { memo = {}; }
-const remember = (key, src) => {
-  memo[key] = src;
-  const keys = Object.keys(memo);
-  if (keys.length > 3000) keys.slice(0, 500).forEach((k) => delete memo[k]);
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(memo)); } catch { /* full or blocked */ }
-};
-
-export function cambridgeUrl(word) {
-  const w = word.trim().toLowerCase();
-  if (!/^[a-z]+$/.test(w)) return null;
-  const pad = (n) => (w + '_'.repeat(n)).slice(0, n);
-  return `https://dictionary.cambridge.org/media/english/us_pron/${w[0]}/${pad(3)}/${pad(5)}/${w}.mp3`;
-}
-
-export function googleUrl(text) {
-  return `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en-US&q=${encodeURIComponent(text.slice(0, 200))}`;
-}
-
-function tryPlay(src) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (ok) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      player.removeEventListener('playing', onPlaying);
-      player.removeEventListener('error', onError);
-      if (!ok) player.pause();
-      resolve(ok);
-    };
-    const onPlaying = () => finish(true);
-    const onError = () => finish(false);
-    const timer = setTimeout(() => finish(false), TIMEOUT_MS);
-    player.addEventListener('playing', onPlaying);
-    player.addEventListener('error', onError);
-    player.src = src;
-    const p = player.play();
-    if (p && p.catch) p.catch(() => finish(false));
-  });
-}
+// Why not <audio> files: on iPhone, playing an <audio> element takes over the audio session, which
+// pauses the music you are listening to and never resumes it. The system speech voice plays as a
+// brief overlay instead, so background music carries on. We also ask for the "ambient" audio
+// session (iOS 16.4+), which means "mix with whatever is already playing".
 
 let voices = [];
-function deviceVoice(text) {
-  if (!('speechSynthesis' in window)) return false;
-  if (!voices.length) voices = speechSynthesis.getVoices();
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'en-US';
-  u.rate = 0.92;
-  const v = voices.find((x) => /^en[-_]US/i.test(x.lang));
-  if (v) u.voice = v;
-  speechSynthesis.speak(u);
-  return true;
+let chosen = null;
+
+function mixWithOthers() {
+  try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch { /* not supported */ }
 }
 
-let token = 0;
+function loadVoices() {
+  if (!('speechSynthesis' in window)) return;
+  voices = speechSynthesis.getVoices();
+  const us = voices.filter((v) => /^en[-_]US/i.test(v.lang));
+  // Prefer the better-sounding downloaded voices when the phone has them.
+  chosen = us.find((v) => /premium|enhanced/i.test(v.name)) || us.find((v) => /samantha|ava|allison|nicky/i.test(v.name)) || us[0] || null;
+}
 
 /**
- * Speak a word or sentence. Resolves to the source used:
- * 'cambridge' | 'google' | 'device' | 'none'.
+ * Speak a word or sentence with the system voice. Resolves to 'device' or 'none'.
  */
-export async function say(text, { isWord = false } = {}) {
+export async function say(text) {
   const clean = String(text || '').trim();
-  if (!clean) return 'none';
-  const mine = ++token;
-  if ('speechSynthesis' in window) speechSynthesis.cancel();
-
-  const key = `${isWord ? 'w' : 's'}:${clean.toLowerCase()}`;
-  const candidates = [];
-  const cam = isWord ? cambridgeUrl(clean) : null;
-  if (cam) candidates.push(['cambridge', cam]);
-  candidates.push(['google', googleUrl(clean)]);
-
-  // Once Cambridge has no recording for a word, go straight to Google next time.
-  const ordered = memo[key] === 'google' ? candidates.filter(([name]) => name !== 'cambridge') : candidates;
-
-  if (navigator.onLine !== false) {
-    for (const [name, src] of ordered) {
-      if (mine !== token) return 'none';
-      if (await tryPlay(src)) {
-        if (memo[key] !== name) remember(key, name);
-        document.body.dataset.audio = name;
-        return name;
-      }
-    }
-  }
-  if (mine !== token) return 'none';
-  const ok = deviceVoice(clean);
-  document.body.dataset.audio = ok ? 'device' : 'none';
-  return ok ? 'device' : 'none';
+  if (!clean || !('speechSynthesis' in window)) return 'none';
+  mixWithOthers();
+  if (!voices.length) loadVoices();
+  if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(clean);
+  u.lang = 'en-US';
+  u.rate = 0.92;
+  if (chosen) u.voice = chosen;
+  speechSynthesis.speak(u);
+  return 'device';
 }
 
-/** Call from the first tap so later automatic playback is allowed on iOS. */
+/** Call from the first tap: loads the voice list and sets the audio session so later speech never interrupts music. */
 export function unlockAudio() {
-  player.src = SILENT;
-  const p = player.play();
-  if (p && p.catch) p.catch(() => {});
+  mixWithOthers();
   if ('speechSynthesis' in window) {
-    voices = speechSynthesis.getVoices();
-    speechSynthesis.onvoiceschanged = () => { voices = speechSynthesis.getVoices(); };
+    loadVoices();
+    speechSynthesis.onvoiceschanged = loadVoices;
   }
 }
 
