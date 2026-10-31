@@ -1,10 +1,10 @@
 // A small decorative F1 car on the home page, about Goku-sized. Every 5 seconds it drives in from the
 // left and out to the right just above the tab bar, while a chequered flag at the right end keeps waving.
-// Click-through, sits under the tab bar, and only exists while the "今日" page is showing.
+// Click-through, rests on the top edge of the tab bar, and only exists while the "今日" page is showing.
 
-const CAR_FILES = [1, 2, 3, 4].map((n) => `race/f1s/car_${n}.png`);
+const CAR_FILES = [1, 2, 3].map((n) => `race/f1s/car_${n}.png`);
 const FLAG_FILES = [1, 2, 3, 4].map((n) => `race/f1s/flag_${n}.png`);
-const CAR_SEQ = [0, 1, 2, 3, 2, 1]; // back and forth through the aligned frames: smoke and sparks keep moving
+const CAR_SEQ = [0, 1, 2, 1]; // back and forth through the aligned frames: smoke and sparks keep moving
 const CAR_FPS = 14;
 const FLAG_FPS = 8;
 const SPEED = 250; // px per second
@@ -77,6 +77,9 @@ export function attach() {
   carBox.append(...cars);
   const flags = images(FLAG_FILES, 'race-flag');
   strip.append(...flags, carBox);
-  document.body.append(strip); // not inside #view: its animation would make "fixed" relative to the view
+  // Inside the tab bar, resting on its top edge: the wheels then touch the bar exactly, on any device.
+  const tabs = document.querySelector('.tabs');
+  if (!tabs) return;
+  tabs.append(strip);
   run(id, cars, flags, carBox).catch(() => {});
 }

@@ -1,5 +1,5 @@
 // Offline cache. Bump CACHE whenever any app file changes so phones pick up the update.
-const CACHE = 'cash-volcab-v25';
+const CACHE = 'cash-volcab-v26';
 const ASSETS = [
   './',
   'index.html',
@@ -24,7 +24,7 @@ const ASSETS = [
   'icons/icon-180.png',
   'icons/icon-192.png',
   'icons/icon-512.png',
-  ...[1, 2, 3, 4].map((n) => `race/f1s/car_${n}.png`),
+  ...[1, 2, 3].map((n) => `race/f1s/car_${n}.png`),
   ...[1, 2, 3, 4].map((n) => `race/f1s/flag_${n}.png`),
   'js/race.js',
   'samples/sample-words.txt',
