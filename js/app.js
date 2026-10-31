@@ -2,12 +2,13 @@ import { parseVocab, wordKey, AI_PROMPT_PDF, AI_PROMPT_TEXT } from './parser.js'
 import * as srs from './srs.js';
 import { createStore } from './store.js';
 import { say, unlockAudio, lookupIpa } from './audio.js';
+import * as race from './race.js';
 import { icon, hydrateIcons } from './icons.js';
 import { createPet } from './pet/pet.js';
 import { readPackFile } from './pet/pack.js';
 
 const APP_NAME = 'Cash Volcab';
-const APP_VERSION = '2.6.1';
+const APP_VERSION = '2.7.0';
 const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, pet: true, petQuiet: false };
 
 const S = {
@@ -327,7 +328,7 @@ function render() {
     if (on) t.setAttribute('aria-current', 'page');
     else t.removeAttribute('aria-current');
   });
-  if (S.study || S.tab !== 'today') pet.detach();
+  if (S.study || S.tab !== 'today') { pet.detach(); race.stop(); }
   if (S.study) return renderStudy();
   if (S.tab === 'library') return renderLibrary();
   if (S.tab === 'import') return renderImport();
@@ -415,6 +416,7 @@ function renderToday() {
       <h2 class="ic-label">${icon('difficulty', { size: 18 })}星級複習規則</h2>
       ${RULES}
     </div>`);
+  race.attach($('#view'));
   pet.attach($('#view'), todayPlatforms);
 }
 
