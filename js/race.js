@@ -1,48 +1,57 @@
 // A small F1 car that drives across the bottom of the home page now and then.
-// race/ferrari.png is a 4 x 10 sheet of 40 frames; the car already moves left to right inside them.
+// race/ferrari.png holds an 18-frame wheel-spin loop of one car (6 x 3 cells); the page slides it left to right.
 
-const COLS = 4;
-const ROWS = 10;
-const FRAMES = 40;
+const COLS = 6;
+const ROWS = 3;
+const FRAMES = 18;
 const FPS = 24;
+const SPEED = 230; // px per second
 const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-let el = null; let timer = 0; let frame = 0;
+let strip = null; let car = null; let timer = 0; let raf = 0;
 
 function show(i) {
   const col = i % COLS; const row = Math.floor(i / COLS);
-  el.style.backgroundPosition = `${(col / (COLS - 1)) * 100}% ${(row / (ROWS - 1)) * 100}%`;
+  car.style.backgroundPosition = `${(col / (COLS - 1)) * 100}% ${(row / (ROWS - 1)) * 100}%`;
 }
 
 function drive() {
-  if (!el || !el.isConnected) return stop();
-  frame = 0;
-  el.classList.add('go');
-  const step = () => {
-    if (!el || !el.isConnected) return stop();
-    if (frame >= FRAMES) {
-      el.classList.remove('go');
-      timer = setTimeout(drive, 4000 + Math.random() * 6000); // wait, then another pass
+  if (!strip || !strip.isConnected) return stop();
+  const width = strip.clientWidth; const carW = car.offsetWidth;
+  const start = performance.now();
+  car.hidden = false;
+  const tick = (now) => {
+    if (!strip || !strip.isConnected) return stop();
+    const t = (now - start) / 1000;
+    const x = -carW + t * SPEED;
+    if (x > width) {
+      car.hidden = true;
+      timer = setTimeout(drive, 4000 + Math.random() * 7000); // wait, then another pass
       return;
     }
-    show(frame++);
-    timer = setTimeout(step, 1000 / FPS);
+    show(Math.floor(t * FPS) % FRAMES);
+    car.style.transform = `translateX(${x.toFixed(1)}px)`;
+    raf = requestAnimationFrame(tick);
   };
-  step();
+  raf = requestAnimationFrame(tick);
 }
 
 export function stop() {
-  clearTimeout(timer); timer = 0;
-  el = null;
+  clearTimeout(timer); cancelAnimationFrame(raf);
+  timer = 0; raf = 0; strip = null; car = null;
 }
 
 /** Put the car strip at the end of `host` and start the passes. */
 export function attach(host) {
   stop();
   if (!host || reduceMotion()) return;
-  el = document.createElement('div');
-  el.className = 'race';
-  el.setAttribute('aria-hidden', 'true');
-  host.append(el);
+  strip = document.createElement('div');
+  strip.className = 'race';
+  strip.setAttribute('aria-hidden', 'true');
+  car = document.createElement('div');
+  car.className = 'race-car';
+  car.hidden = true;
+  strip.append(car);
+  host.append(strip);
   timer = setTimeout(drive, 900 + Math.random() * 1500); // first pass soon after the page opens
 }
