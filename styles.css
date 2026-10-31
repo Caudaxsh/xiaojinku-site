@@ -408,7 +408,15 @@ body.studying .toast { bottom: calc(130px + var(--safe-bottom)); }
 .btn[disabled] { opacity: 0.4; pointer-events: none; }
 #lib-bar { position: sticky; bottom: calc(76px + var(--safe-bottom)); z-index: 15; }
 
-/* home page: F1 car strip (about Goku-sized, a little longer) */
-.race { position: relative; height: 24px; margin: 6px -18px 0; overflow: hidden; pointer-events: none; }
-.race-car { position: absolute; left: 0; bottom: 0; width: 108px; aspect-ratio: 192 / 37; background: url(race/ferrari.png) 0 0 / 600% 300% no-repeat; will-change: transform; }
-.race-car[hidden] { display: none; }
+/* home page: F1 pass just above the tab bar (decoration only: no taps, sits under the tab bar) */
+.race {
+  position: fixed; left: 0; right: 0; z-index: 19; pointer-events: none;
+  bottom: calc(68px + var(--safe-bottom));
+  width: min(100%, 600px); margin: 0 auto;
+  aspect-ratio: 1024 / 250; overflow: hidden; opacity: 0;
+}
+.race.on { opacity: 1; }
+.race.fade { opacity: 0; transition: opacity 0.25s ease; }
+.race img { position: absolute; left: 0; bottom: 0; width: 100%; height: auto; }
+.race .race-flag { left: auto; right: 2px; width: auto; height: 72%; display: none; }
+.race.flag .race-flag { display: block; }
