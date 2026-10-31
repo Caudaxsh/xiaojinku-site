@@ -417,7 +417,7 @@ body.studying .toast { bottom: calc(130px + var(--safe-bottom)); }
   position: absolute; z-index: 1; pointer-events: none;
   left: 50%; width: min(100%, 600px); transform: translateX(-50%);
   bottom: calc(100% + 1px); /* 1px = the tab bar's top border: wheels sit right on it */
-  height: 28px; overflow: hidden; opacity: 0;
+  height: 44px; overflow: hidden; opacity: 0;
 }
 .race.on { opacity: 1; transition: opacity 0.3s ease; }
 .race-car { position: absolute; left: 0; bottom: 0; display: flex; align-items: flex-end; white-space: nowrap; will-change: transform; transform: translateX(-400px); }
@@ -427,5 +427,6 @@ body.studying .toast { bottom: calc(130px + var(--safe-bottom)); }
 .race-banner { flex: none; margin-bottom: 4px; color: var(--ink); line-height: 1; }
 .race-banner.pixel { font-family: 'Press Start 2P', monospace; font-size: 8px; }
 .race-banner.glitch { font-family: 'Rubik Glitch', 'Press Start 2P', sans-serif; font-size: 12px; }
+.race-flag-btn { position: absolute; right: 0; bottom: 0; width: 56px; height: 44px; padding: 0; border: 0; background: none; pointer-events: auto; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .race-flag { position: absolute; right: 6px; bottom: 0; height: 26px; width: auto; }
 body:has(.race) #view { padding-bottom: calc(98px + var(--safe-bottom) + 24px); }
