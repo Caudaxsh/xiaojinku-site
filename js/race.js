@@ -5,9 +5,9 @@
 const CAR_FILES = [1, 2, 3].map((n) => `race/f1s/car_${n}.png`);
 const FLAG_FILES = [1, 2, 3, 4].map((n) => `race/f1s/flag_${n}.png`);
 const CAR_SEQ = [0, 1, 2, 1]; // back and forth through the aligned frames: smoke and sparks keep moving
-const CAR_FPS = 14;
+const CAR_FPS = 10;
 const FLAG_FPS = 8;
-const SPEED = 250; // px per second
+const SPEED = 120; // px per second (was 250: about half as fast, a pass takes ~4 s)
 const EVERY_MS = 5000; // a new pass every 5 seconds
 const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
