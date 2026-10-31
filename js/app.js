@@ -8,7 +8,7 @@ import { createPet } from './pet/pet.js';
 import { readPackFile } from './pet/pack.js';
 
 const APP_NAME = 'Cash Volcab';
-const APP_VERSION = '2.8.1';
+const APP_VERSION = '2.8.2';
 const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, pet: true, petQuiet: false };
 
 const S = {

@@ -408,14 +408,15 @@ body.studying .toast { bottom: calc(130px + var(--safe-bottom)); }
 .btn[disabled] { opacity: 0.4; pointer-events: none; }
 #lib-bar { position: sticky; bottom: calc(76px + var(--safe-bottom)); z-index: 15; }
 
-/* home page: small F1 car above the tab bar (decoration only: no taps, sits under the tab bar) */
+/* home page: small F1 car riding on the top edge of the tab bar (decoration only: no taps) */
 .race {
-  position: fixed; left: 0; right: 0; z-index: 19; pointer-events: none;
-  bottom: calc(68px + var(--safe-bottom));
-  width: min(100%, 600px); height: 42px; margin: 0 auto; overflow: hidden; opacity: 0;
+  position: absolute; z-index: 1; pointer-events: none;
+  left: 50%; width: min(100%, 600px); transform: translateX(-50%);
+  bottom: calc(100% + 1px); /* 1px = the tab bar's top border: wheels sit right on it */
+  height: 28px; overflow: hidden; opacity: 0;
 }
 .race.on { opacity: 1; transition: opacity 0.3s ease; }
-.race-car { position: absolute; left: 0; bottom: 0; width: 136px; height: 30px; will-change: transform; transform: translateX(-200px); }
+.race-car { position: absolute; left: 0; bottom: 0; width: 96px; aspect-ratio: 292 / 56; will-change: transform; transform: translateX(-200px); }
 .race-car img { position: absolute; left: 0; bottom: 0; width: 100%; height: auto; }
-.race-flag { position: absolute; right: 6px; bottom: 0; height: 40px; width: auto; }
-body:has(.race) #view { padding-bottom: calc(98px + var(--safe-bottom) + 34px); }
+.race-flag { position: absolute; right: 6px; bottom: 0; height: 26px; width: auto; }
+body:has(.race) #view { padding-bottom: calc(98px + var(--safe-bottom) + 24px); }
