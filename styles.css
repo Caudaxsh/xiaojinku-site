@@ -408,6 +408,10 @@ body.studying .toast { bottom: calc(130px + var(--safe-bottom)); }
 .btn[disabled] { opacity: 0.4; pointer-events: none; }
 #lib-bar { position: sticky; bottom: calc(76px + var(--safe-bottom)); z-index: 15; }
 
+/* banner fonts (SIL Open Font License), served from this site so they work offline */
+@font-face { font-family: 'Press Start 2P'; font-style: normal; font-weight: 400; font-display: swap; src: url(fonts/press-start-2p.woff2) format('woff2'); }
+@font-face { font-family: 'Rubik Glitch'; font-style: normal; font-weight: 400; font-display: swap; src: url(fonts/rubik-glitch.woff2) format('woff2'); }
+
 /* home page: small F1 car riding on the top edge of the tab bar (decoration only: no taps) */
 .race {
   position: absolute; z-index: 1; pointer-events: none;
@@ -416,7 +420,12 @@ body.studying .toast { bottom: calc(130px + var(--safe-bottom)); }
   height: 28px; overflow: hidden; opacity: 0;
 }
 .race.on { opacity: 1; transition: opacity 0.3s ease; }
-.race-car { position: absolute; left: 0; bottom: 0; width: 96px; aspect-ratio: 292 / 56; will-change: transform; transform: translateX(-200px); }
-.race-car img { position: absolute; left: 0; bottom: 0; width: 100%; height: auto; }
+.race-car { position: absolute; left: 0; bottom: 0; display: flex; align-items: flex-end; white-space: nowrap; will-change: transform; transform: translateX(-400px); }
+.race-wheels { position: relative; flex: none; width: 96px; aspect-ratio: 292 / 56; }
+.race-wheels img { position: absolute; left: 0; bottom: 0; width: 100%; height: auto; }
+.race-tow { flex: none; width: 14px; height: 1px; margin-bottom: 8px; background: var(--muted); }
+.race-banner { flex: none; margin-bottom: 4px; color: var(--ink); line-height: 1; }
+.race-banner.pixel { font-family: 'Press Start 2P', monospace; font-size: 8px; }
+.race-banner.glitch { font-family: 'Rubik Glitch', 'Press Start 2P', sans-serif; font-size: 12px; }
 .race-flag { position: absolute; right: 6px; bottom: 0; height: 26px; width: auto; }
 body:has(.race) #view { padding-bottom: calc(98px + var(--safe-bottom) + 24px); }
