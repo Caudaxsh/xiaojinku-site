@@ -430,3 +430,8 @@ body.studying .toast { bottom: calc(130px + var(--safe-bottom)); }
 .race-flag-btn { position: absolute; right: 0; bottom: 0; width: 56px; height: 44px; padding: 0; border: 0; background: none; pointer-events: auto; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .race-flag { position: absolute; right: 6px; bottom: 0; height: 26px; width: auto; }
 body:has(.race) #view { padding-bottom: calc(98px + var(--safe-bottom) + 24px); }
+
+/* import preview: swipe left to leave a word out */
+.pv-row { position: relative; border-radius: 14px; overflow: hidden; }
+.pv-del { position: absolute; top: 0; right: 0; bottom: 0; width: 88px; background: var(--rust); color: #fff; font-size: 14px; font-weight: 600; }
+.pv-swipe { position: relative; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
