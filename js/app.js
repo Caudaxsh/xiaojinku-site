@@ -8,7 +8,7 @@ import { createPet } from './pet/pet.js';
 import { readPackFile } from './pet/pack.js';
 
 const APP_NAME = 'Cash Volcab';
-const APP_VERSION = '2.9.1';
+const APP_VERSION = '2.11.0';
 const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, pet: true, petQuiet: false };
 
 const S = {
@@ -21,7 +21,7 @@ const S = {
   tab: 'today',
   study: null,
   lib: { q: '', filter: 'all', sel: null },
-  imp: { text: '', result: null, status: '' },
+  imp: { text: '', result: null, status: '', skip: new Set() },
   lastImport: null,
 };
 
@@ -889,8 +889,12 @@ function updateImportPreview() {
   const box = $('#imp-preview');
   if (!box) return;
   const result = parseVocab(S.imp.text);
+  if (!S.imp.text.trim()) { S.imp.skip = new Set(); S.imp.result = result; box.innerHTML = ''; return; }
+  // Words swiped away in the preview are left out of this import (the text itself is untouched).
+  const skip = S.imp.skip || (S.imp.skip = new Set());
+  const removed = result.cards.filter((c) => skip.has(wordKey(c.word)));
+  result.cards = result.cards.filter((c) => !skip.has(wordKey(c.word)));
   S.imp.result = result;
-  if (!S.imp.text.trim()) { box.innerHTML = ''; return; }
 
   const existing = new Set(S.cards.map((c) => c.id));
   const updating = result.cards.filter((c) => existing.has(wordKey(c.word))).length;
@@ -899,17 +903,22 @@ function updateImportPreview() {
   const button = result.cards.length ? `<button class="btn primary big" style="margin-top:12px" data-act="do-import">匯入 ${result.cards.length} 個單字</button>` : '';
 
   const items = result.cards.map((c) => `
-    <div class="pv">
-      <div class="t"><b>${esc(c.word)}</b>${c.aiStars ? `<span class="small">${'⭐'.repeat(Math.min(c.aiStars, 5))}</span>` : ''}</div>
-      <div class="muted small">${esc(c.meaning)}</div>
-      <div class="tags">${cardTags(c)}</div>
-      ${warn.has(c.word) ? `<div class="w">⚠ ${warn.get(c.word).map(esc).join('；')}</div>` : ''}
+    <div class="pv-row" data-key="${esc(wordKey(c.word))}">
+      <button class="pv-del" data-act="pv-remove" data-key="${esc(wordKey(c.word))}" aria-label="不匯入 ${esc(c.word)}">不匯入</button>
+      <div class="pv pv-swipe">
+        <div class="t"><b>${esc(c.word)}</b>${c.aiStars ? `<span class="small">${'⭐'.repeat(Math.min(c.aiStars, 5))}</span>` : ''}</div>
+        <div class="muted small">${esc(c.meaning)}</div>
+        <div class="tags">${cardTags(c)}</div>
+        ${warn.has(c.word) ? `<div class="w">⚠ ${warn.get(c.word).map(esc).join('；')}</div>` : ''}
+      </div>
     </div>`).join('');
   const errs = result.errors.map((e) => `<div class="pv err"><div class="t"><b>略過一段</b></div><div class="w">${esc(e.error)}${e.snippet ? `：「${esc(e.snippet)}」` : ''}</div></div>`).join('');
 
   box.innerHTML = `
     ${result.ignored.length ? `<p class="summary muted small">已略過 PDF 開頭的 ${result.ignored.length} 段文字（${result.ignored.map((e) => `「${esc(e.snippet || '')}」`).join('、')}）。</p>` : ''}
     <p class="summary">解析到 <b>${result.cards.length}</b> 個單字${updating ? `（新增 <b>${adding}</b>、更新 <b>${updating}</b>）` : ''}${result.warnings.length ? `，<b>${result.warnings.length}</b> 個需要留意` : ''}${result.errors.length ? `，略過 <b>${result.errors.length}</b> 段` : ''}</p>
+    ${removed.length ? `<p class="summary muted small">已移除 ${removed.length} 個不匯入。<button class="linkish" data-act="pv-restore">全部還原</button></p>` : ''}
+    ${result.cards.length ? '<p class="muted small" style="margin-top:4px">往左滑單字，可以不匯入它。</p>' : ''}
     ${button}
     <div class="preview">${errs}${items}</div>
     ${result.cards.length > 4 ? button : ''}`;
@@ -939,7 +948,7 @@ async function doImport() {
   await saveCards(out);
   S.lastImport = { date: srs.todayStr(), added: addedIds, updated: previous };
   await saveMeta('lastImport', S.lastImport);
-  S.imp = { text: '', result: null, status: '' };
+  S.imp = { text: '', result: null, status: '', skip: new Set() };
   pet.emit('done');
   const perDay = S.settings.newPerDay;
   toast(`已匯入：新增 ${added}${updated ? `、更新 ${updated}` : ''}${added > perDay ? `（每天出 ${perDay} 個新字）` : ''}`);
@@ -1246,6 +1255,8 @@ const actions = {
       updateImportPreview();
     } catch { toast('無法讀取剪貼簿，請在文字框長按選「貼上」'); }
   },
+  'pv-remove': (el) => { S.imp.skip.add(el.dataset.key); updateImportPreview(); },
+  'pv-restore': () => { S.imp.skip = new Set(); updateImportPreview(); },
   'imp-clear': () => { S.imp.text = ''; $('#imp-text').value = ''; setImportStatus(''); updateImportPreview(); },
   'do-import': doImport,
   'new-per-day': async (el) => {
@@ -1390,3 +1401,42 @@ async function boot() {
 }
 
 boot();
+
+/* Swipe a preview word to the left: reveals "不匯入" (tap it), or swipe all the way to drop it at once. */
+(() => {
+  const OPEN = 88; // px the row slides to show the button
+  let drag = null;
+  const setX = (el, x, animate) => { el.style.transition = animate ? 'transform 0.18s ease' : 'none'; el.style.transform = x ? `translateX(${x}px)` : ''; };
+  const closeOthers = (except) => document.querySelectorAll('.pv-swipe.open').forEach((el) => { if (el !== except) { el.classList.remove('open'); setX(el, 0, true); } });
+  document.addEventListener('pointerdown', (e) => {
+    const el = e.target.closest?.('.pv-swipe');
+    if (!el) return closeOthers(null);
+    closeOthers(el);
+    drag = { el, x0: e.clientX, y0: e.clientY, base: el.classList.contains('open') ? -OPEN : 0, dx: 0, moving: false, id: e.pointerId };
+  });
+  document.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x0; const dy = e.clientY - drag.y0;
+    if (!drag.moving) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { drag = null; return; } // a vertical scroll, not a swipe
+      if (Math.abs(dx) < 8) return;
+      drag.moving = true;
+      try { drag.el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    }
+    drag.dx = Math.min(0, Math.max(-(drag.el.offsetWidth), drag.base + dx));
+    setX(drag.el, drag.dx, false);
+  });
+  const end = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const { el, dx, moving } = drag; drag = null;
+    if (!moving) return;
+    const row = el.closest('.pv-row');
+    if (dx < -el.offsetWidth * 0.55 && row) { // swiped far: drop it right away
+      setX(el, -el.offsetWidth, true);
+      setTimeout(() => { S.imp.skip.add(row.dataset.key); updateImportPreview(); }, 160);
+    } else if (dx < -OPEN / 2) { el.classList.add('open'); setX(el, -OPEN, true); }
+    else { el.classList.remove('open'); setX(el, 0, true); }
+  };
+  document.addEventListener('pointerup', end);
+  document.addEventListener('pointercancel', end);
+})();
