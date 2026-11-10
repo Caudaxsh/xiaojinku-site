@@ -1,14 +1,14 @@
 import { parseVocab, wordKey, AI_PROMPT_PDF, AI_PROMPT_TEXT } from './parser.js';
 import * as srs from './srs.js';
 import { createStore } from './store.js';
-import { say, unlockAudio, lookupIpa } from './audio.js';
+import { say, unlockAudio, lookupIpa, testVoice, audioInfo } from './audio.js';
 import * as race from './race.js';
 import { icon, hydrateIcons } from './icons.js';
 import { createPet } from './pet/pet.js';
 import { readPackFile } from './pet/pack.js';
 
 const APP_NAME = 'Cash Volcab';
-const APP_VERSION = '2.11.0';
+const APP_VERSION = '2.11.1';
 const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, pet: true, petQuiet: false };
 
 const S = {
@@ -1068,6 +1068,10 @@ function renderSettings() {
         <div><b>自動播放單字發音</b><p>每張卡片出現時先念一次</p></div>
         <button class="switch" role="switch" aria-checked="${S.settings.autoPlay}" data-act="toggle-autoplay" aria-label="自動播放單字發音"></button>
       </div>
+      <div class="set-row">
+        <div><b>發音測試</b><p id="audio-test-result">沒聲音時按這裡，會告訴你是哪一步出問題</p></div>
+        <button class="btn sm" data-act="audio-test">測試</button>
+      </div>
     </div>
     <div class="panel">
       <h2 class="ic-label">${icon('difficulty', { size: 18 })}星級複習規則</h2>
@@ -1269,6 +1273,17 @@ const actions = {
     pet.enabled = S.settings.pet;
     el.setAttribute('aria-checked', String(S.settings.pet));
     await saveMeta('settings', S.settings);
+  },
+  'audio-test': async () => {
+    const out = $('#audio-test-result'); if (!out) return;
+    out.textContent = '測試中…請注意聽';
+    const path = await testVoice();
+    const hint = '\n請確認：手機側邊靜音開關沒有開（橘色）、音量夠大、不在藍牙或其他 App 佔用聲音的狀態。';
+    const base = `（系統語音 ${audioInfo.voices} 個）`;
+    out.textContent = path === 'device' ? `系統語音正常${base}。如果你沒聽到，多半是靜音開關或音量。${hint}`
+      : path === 'google' ? `系統語音沒有出聲${base}，已改用網路語音播放。${hint}`
+      : `兩種都沒有出聲${base}。${navigator.onLine === false ? '目前沒有網路。' : ''}${hint}`;
+    out.style.whiteSpace = 'pre-line';
   },
   'toggle-pet-quiet': async (el) => {
     S.settings.petQuiet = !S.settings.petQuiet;
