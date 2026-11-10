@@ -1,8 +1,10 @@
-// Pronunciation. Main path: the phone's own English voice (works offline, plays over background music
-// instead of stopping it). Safety net: if the system voice does not actually start (iOS sometimes
-// drops speech after a cancel, or stays silent), the same text is played from Google's voice so you
-// never get a silent button. Settings has a test button that shows which path worked.
+// Pronunciation, two modes (Settings: "靜音鍵開著也要出聲"):
+//  - on (default): recordings (Cambridge for words, Google otherwise) through an <audio> element, which the
+//    silent switch does not mute; the phone's own voice is the fallback.
+//  - off: the phone's own voice first (plays over music, but the silent switch mutes it), recordings as fallback.
+// Settings has a test button that shows which path worked.
 
+const SILENT = 'data:audio/wav;base64,UklGRiwAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQgAAACAgICAgICAgA==';
 const TIMEOUT_MS = 5000;
 const START_WATCHDOG_MS = 1400; // the system voice must start speaking within this time
 
@@ -77,14 +79,52 @@ function systemSpeak(text) {
 }
 
 let token = 0;
+let loud = true; // play even when the ringer/silent switch is on (see setLoud)
 
 /**
- * Speak a word or sentence. Resolves to 'device' (system voice), 'google' (fallback voice) or 'none'.
+ * loud = true (default): play recordings through an <audio> element in the "playback" session. iOS does
+ * not mute these with the silent switch (the system voice IS muted by it), but they can pause music.
+ * loud = false: system voice first, which plays over music but stays silent while the switch is on.
  */
-export async function say(text) {
+export function setLoud(on) { loud = Boolean(on); }
+
+function session(type) {
+  try { if (navigator.audioSession) navigator.audioSession.type = type; } catch { /* not supported */ }
+}
+// When a recording ends, give the audio focus back so music that was paused can carry on.
+player.addEventListener('ended', () => session('auto'));
+player.addEventListener('pause', () => { if (player.ended || player.currentTime === 0) session('auto'); });
+
+export function cambridgeUrl(word) {
+  const w = word.trim().toLowerCase();
+  if (!/^[a-z]+$/.test(w)) return null;
+  const pad = (n) => (w + '_'.repeat(n)).slice(0, n);
+  return `https://dictionary.cambridge.org/media/english/us_pron/${w[0]}/${pad(3)}/${pad(5)}/${w}.mp3`;
+}
+
+async function playRecording(clean, isWord) {
+  if (navigator.onLine === false) return false;
+  session('playback');
+  const cam = isWord ? cambridgeUrl(clean) : null;
+  if (cam && (await playFile(cam))) return true;
+  return playFile(googleUrl(clean));
+}
+
+/**
+ * Speak a word or sentence. Resolves to 'device' (system voice), 'google' (recording) or 'none'.
+ */
+export async function say(text, { isWord = false } = {}) {
   const clean = String(text || '').trim();
   if (!clean) return 'none';
   const mine = ++token;
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  if (loud) {
+    if (await playRecording(clean, isWord)) { info.lastPath = 'google'; return 'google'; }
+    if (mine !== token) return 'none';
+    if (await systemSpeak(clean)) { info.lastPath = 'device'; return 'device'; }
+    info.lastPath = 'none';
+    return 'none';
+  }
   if (failStreak < 2 && (await systemSpeak(clean))) {
     failStreak = 0;
     info.lastPath = 'device';
@@ -92,10 +132,7 @@ export async function say(text) {
   }
   if (mine !== token) return 'none';
   failStreak += 1;
-  if (navigator.onLine !== false && (await playFile(googleUrl(clean)))) {
-    info.lastPath = 'google';
-    return 'google';
-  }
+  if (await playRecording(clean, isWord)) { info.lastPath = 'google'; return 'google'; }
   info.lastPath = 'none';
   return 'none';
 }
@@ -103,15 +140,20 @@ export async function say(text) {
 /** For the Settings test button: forget earlier failures, try again, and report which path worked. */
 export async function testVoice() {
   failStreak = 0;
-  const path = await say('Hello, this is a test.');
-  return path;
+  return say('Hello, this is a test.', { isWord: false });
 }
 
-/** Call from the first tap: loads the voice list. */
+/** Call from the first tap: loads the voice list, and (loud mode) lets later automatic playback through on iOS. */
 export function unlockAudio() {
   if ('speechSynthesis' in window) {
     loadVoices();
     speechSynthesis.onvoiceschanged = loadVoices;
+  }
+  if (loud) {
+    session('playback');
+    player.src = SILENT;
+    const p = player.play();
+    if (p && p.catch) p.catch(() => {});
   }
 }
 

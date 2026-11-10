@@ -1,15 +1,15 @@
 import { parseVocab, wordKey, AI_PROMPT_PDF, AI_PROMPT_TEXT } from './parser.js';
 import * as srs from './srs.js';
 import { createStore } from './store.js';
-import { say, unlockAudio, lookupIpa, testVoice, audioInfo } from './audio.js';
+import { say, unlockAudio, lookupIpa, testVoice, audioInfo, setLoud } from './audio.js';
 import * as race from './race.js';
 import { icon, hydrateIcons } from './icons.js';
 import { createPet } from './pet/pet.js';
 import { readPackFile } from './pet/pack.js';
 
 const APP_NAME = 'Cash Volcab';
-const APP_VERSION = '2.11.1';
-const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, pet: true, petQuiet: false };
+const APP_VERSION = '2.11.2';
+const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, playInSilent: true, pet: true, petQuiet: false };
 
 const S = {
   store: null,
@@ -479,7 +479,7 @@ function onCardShown() {
   const cur = studyEntry();
   if (!cur) return;
   const { card } = cur;
-  if (S.settings.autoPlay) say(spoken(card.word));
+  if (S.settings.autoPlay) say(spoken(card.word), { isWord: true });
   if (!card.ipa && !ipaTried.has(card.id)) {
     ipaTried.add(card.id);
     lookupIpa(card.word).then(async (ipa) => {
@@ -1069,6 +1069,10 @@ function renderSettings() {
         <button class="switch" role="switch" aria-checked="${S.settings.autoPlay}" data-act="toggle-autoplay" aria-label="自動播放單字發音"></button>
       </div>
       <div class="set-row">
+        <div><b>靜音鍵開著也要出聲</b><p>開：用網路錄音播放，不受鈴聲靜音影響，但可能暫停你正在聽的音樂。關：用手機語音，不暫停音樂，但鈴聲靜音時沒聲音</p></div>
+        <button class="switch" role="switch" aria-checked="${S.settings.playInSilent !== false}" data-act="toggle-loud" aria-label="靜音鍵開著也要出聲"></button>
+      </div>
+      <div class="set-row">
         <div><b>發音測試</b><p id="audio-test-result">沒聲音時按這裡，會告訴你是哪一步出問題</p></div>
         <button class="btn sm" data-act="audio-test">測試</button>
       </div>
@@ -1155,7 +1159,7 @@ const actions = {
   tab: (el) => go(el.dataset.tab),
   start: () => startStudy(),
   flip: flipCard,
-  speak: (el) => say(el.dataset.kind === 'word' ? spoken(el.dataset.text) : el.dataset.text),
+  speak: (el) => say(el.dataset.kind === 'word' ? spoken(el.dataset.text) : el.dataset.text, { isWord: el.dataset.kind === 'word' }),
   jump: (el) => {
     const target = document.getElementById(el.dataset.to);
     if (target) target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
@@ -1272,6 +1276,12 @@ const actions = {
     S.settings.pet = !S.settings.pet;
     pet.enabled = S.settings.pet;
     el.setAttribute('aria-checked', String(S.settings.pet));
+    await saveMeta('settings', S.settings);
+  },
+  'toggle-loud': async (el) => {
+    S.settings.playInSilent = S.settings.playInSilent === false;
+    el.setAttribute('aria-checked', String(S.settings.playInSilent));
+    setLoud(S.settings.playInSilent);
     await saveMeta('settings', S.settings);
   },
   'audio-test': async () => {
@@ -1394,6 +1404,7 @@ async function boot() {
     S.clock = (await S.store.getMeta('clock')) || srs.newClock();
     S.cards = (await S.store.getAll()).map((c) => upgradeCard(c));
     S.settings = { ...DEFAULT_SETTINGS, ...((await S.store.getMeta('settings')) || {}) };
+    setLoud(S.settings.playInSilent !== false);
     S.days = (await S.store.getMeta('days')) || [];
     S.newToday = (await S.store.getMeta('newToday')) || S.newToday;
     S.lastImport = (await S.store.getMeta('lastImport')) || null;
