@@ -1,15 +1,15 @@
 import { parseVocab, wordKey, AI_PROMPT_PDF, AI_PROMPT_TEXT } from './parser.js';
 import * as srs from './srs.js';
 import { createStore } from './store.js';
-import { say, unlockAudio, lookupIpa, testVoice, audioInfo, setLoud } from './audio.js';
+import { say, unlockAudio, lookupIpa, testVoice, audioInfo, setLoud, setMusicMode } from './audio.js';
 import * as race from './race.js';
 import { icon, hydrateIcons } from './icons.js';
 import { createPet } from './pet/pet.js';
 import { readPackFile } from './pet/pack.js';
 
 const APP_NAME = 'Cash Volcab';
-const APP_VERSION = '2.11.3';
-const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, playInSilent: true, pet: true, petQuiet: false };
+const APP_VERSION = '2.12.0';
+const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, playInSilent: true, musicMode: 'duck', pet: true, petQuiet: false };
 
 const S = {
   store: null,
@@ -1073,6 +1073,10 @@ function renderSettings() {
         <button class="switch" role="switch" aria-checked="${S.settings.playInSilent !== false}" data-act="toggle-loud" aria-label="靜音鍵開著也要出聲"></button>
       </div>
       <div class="set-row">
+        <div><b>播單字時的音樂</b><p>用網路錄音播放時：降低音量，或先暫停，念完音樂自己回來</p></div>
+        <div class="adjust" style="margin:0">${[['duck', '降低'], ['pause', '暫停']].map(([m, t]) => `<button class="${(S.settings.musicMode || 'duck') === m ? 'on' : ''}" data-act="music-mode" data-mode="${m}">${t}</button>`).join('')}</div>
+      </div>
+      <div class="set-row">
         <div><b>發音測試</b><p id="audio-test-result">沒聲音時按這裡，會告訴你是哪一步出問題</p></div>
         <button class="btn sm" data-act="audio-test">測試</button>
       </div>
@@ -1278,6 +1282,12 @@ const actions = {
     el.setAttribute('aria-checked', String(S.settings.pet));
     await saveMeta('settings', S.settings);
   },
+  'music-mode': async (el) => {
+    S.settings.musicMode = el.dataset.mode;
+    setMusicMode(S.settings.musicMode);
+    document.querySelectorAll('[data-act="music-mode"]').forEach((b) => b.classList.toggle('on', b === el));
+    await saveMeta('settings', S.settings);
+  },
   'toggle-loud': async (el) => {
     S.settings.playInSilent = S.settings.playInSilent === false;
     el.setAttribute('aria-checked', String(S.settings.playInSilent));
@@ -1405,6 +1415,7 @@ async function boot() {
     S.cards = (await S.store.getAll()).map((c) => upgradeCard(c));
     S.settings = { ...DEFAULT_SETTINGS, ...((await S.store.getMeta('settings')) || {}) };
     setLoud(S.settings.playInSilent !== false);
+    setMusicMode(S.settings.musicMode);
     S.days = (await S.store.getMeta('days')) || [];
     S.newToday = (await S.store.getMeta('newToday')) || S.newToday;
     S.lastImport = (await S.store.getMeta('lastImport')) || null;

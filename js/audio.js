@@ -82,6 +82,7 @@ function systemSpeak(text) {
 
 let token = 0;
 let loud = true; // play even when the ringer/silent switch is on (see setLoud)
+let musicMode = 'duck'; // while a word plays: 'duck' = music gets quieter, 'pause' = music pauses; it comes back afterwards
 
 /**
  * loud = true (default): play recordings through an <audio> element in the "transient" audio session: a
@@ -91,8 +92,19 @@ let loud = true; // play even when the ringer/silent switch is on (see setLoud)
  */
 export function setLoud(on) { loud = Boolean(on); }
 
+export function setMusicMode(mode) { musicMode = mode === 'pause' ? 'pause' : 'duck'; }
+
 function session(type) {
   try { if (navigator.audioSession) navigator.audioSession.type = type; } catch { /* not supported */ }
+}
+/** The session type to ask for while a recording plays, with a fallback if this iOS lacks the newer one. */
+function wordSession() {
+  if (musicMode === 'pause') {
+    session('transient-solo'); // interrupts the music, hands it back when we are done
+    if (navigator.audioSession && navigator.audioSession.type !== 'transient-solo') session('playback');
+  } else {
+    session('transient'); // short sound over the music: it is turned down, then back up
+  }
 }
 // When a recording ends, hand the audio focus back so music can carry on / resume.
 player.addEventListener('ended', () => session('auto'));
@@ -107,7 +119,7 @@ export function cambridgeUrl(word) {
 
 async function playRecording(clean, isWord) {
   if (navigator.onLine === false) return false;
-  session('transient'); // short sound over the music; the music goes on (or resumes) afterwards
+  wordSession();
   const cam = isWord ? cambridgeUrl(clean) : null;
   if (cam && (await playFile(cam))) return true;
   return playFile(googleUrl(clean));
@@ -153,7 +165,7 @@ export function unlockAudio() {
     speechSynthesis.onvoiceschanged = loadVoices;
   }
   if (loud) {
-    session('transient');
+    wordSession();
     player.src = SILENT;
     const p = player.play();
     if (p && p.catch) p.catch(() => {});
