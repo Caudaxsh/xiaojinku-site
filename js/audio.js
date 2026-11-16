@@ -1,6 +1,7 @@
 // Pronunciation, two modes (Settings: "靜音鍵開著也要出聲"):
-//  - on (default): recordings (Cambridge for words, Google otherwise) through an <audio> element, which the
-//    silent switch does not mute; the phone's own voice is the fallback.
+//  - on (default): recordings (Cambridge for words, Google otherwise) through an <audio> element in a
+//    "transient" audio session: not muted by the silent switch, plays over music, music resumes after.
+//    The phone's own voice is the fallback.
 //  - off: the phone's own voice first (plays over music, but the silent switch mutes it), recordings as fallback.
 // Settings has a test button that shows which path worked.
 
@@ -55,6 +56,7 @@ function playFile(src) {
 
 /** Speak with the system voice. Resolves true once it has really started, false if it stayed silent. */
 function systemSpeak(text) {
+  session('ambient'); // mix with whatever is playing
   return new Promise((resolve) => {
     if (!('speechSynthesis' in window)) return resolve(false);
     if (!voices.length) loadVoices();
@@ -82,16 +84,17 @@ let token = 0;
 let loud = true; // play even when the ringer/silent switch is on (see setLoud)
 
 /**
- * loud = true (default): play recordings through an <audio> element in the "playback" session. iOS does
- * not mute these with the silent switch (the system voice IS muted by it), but they can pause music.
- * loud = false: system voice first, which plays over music but stays silent while the switch is on.
+ * loud = true (default): play recordings through an <audio> element in the "transient" audio session: a
+ * short sound that is not muted by the silent switch and plays over music, which carries on or resumes
+ * afterwards (iOS 16.4+; older systems may pause the music instead).
+ * loud = false: system voice first ("ambient" session: mixes with music, but the silent switch mutes it).
  */
 export function setLoud(on) { loud = Boolean(on); }
 
 function session(type) {
   try { if (navigator.audioSession) navigator.audioSession.type = type; } catch { /* not supported */ }
 }
-// When a recording ends, give the audio focus back so music that was paused can carry on.
+// When a recording ends, hand the audio focus back so music can carry on / resume.
 player.addEventListener('ended', () => session('auto'));
 player.addEventListener('pause', () => { if (player.ended || player.currentTime === 0) session('auto'); });
 
@@ -104,7 +107,7 @@ export function cambridgeUrl(word) {
 
 async function playRecording(clean, isWord) {
   if (navigator.onLine === false) return false;
-  session('playback');
+  session('transient'); // short sound over the music; the music goes on (or resumes) afterwards
   const cam = isWord ? cambridgeUrl(clean) : null;
   if (cam && (await playFile(cam))) return true;
   return playFile(googleUrl(clean));
@@ -150,7 +153,7 @@ export function unlockAudio() {
     speechSynthesis.onvoiceschanged = loadVoices;
   }
   if (loud) {
-    session('playback');
+    session('transient');
     player.src = SILENT;
     const p = player.play();
     if (p && p.catch) p.catch(() => {});

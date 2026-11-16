@@ -8,7 +8,7 @@ import { createPet } from './pet/pet.js';
 import { readPackFile } from './pet/pack.js';
 
 const APP_NAME = 'Cash Volcab';
-const APP_VERSION = '2.11.2';
+const APP_VERSION = '2.11.3';
 const DEFAULT_SETTINGS = { newPerDay: 50, autoPlay: true, playInSilent: true, pet: true, petQuiet: false };
 
 const S = {
@@ -1069,7 +1069,7 @@ function renderSettings() {
         <button class="switch" role="switch" aria-checked="${S.settings.autoPlay}" data-act="toggle-autoplay" aria-label="自動播放單字發音"></button>
       </div>
       <div class="set-row">
-        <div><b>靜音鍵開著也要出聲</b><p>開：用網路錄音播放，不受鈴聲靜音影響，但可能暫停你正在聽的音樂。關：用手機語音，不暫停音樂，但鈴聲靜音時沒聲音</p></div>
+        <div><b>靜音鍵開著也要出聲</b><p>開：用網路錄音播放，鈴聲靜音也有聲音，播單字時音樂會讓出一下、播完自己回來。關：用手機語音，一樣不中斷音樂，但鈴聲靜音時沒聲音</p></div>
         <button class="switch" role="switch" aria-checked="${S.settings.playInSilent !== false}" data-act="toggle-loud" aria-label="靜音鍵開著也要出聲"></button>
       </div>
       <div class="set-row">
